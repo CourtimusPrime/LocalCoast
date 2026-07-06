@@ -283,6 +283,20 @@ export function registerShellCapabilities(core: Core, tabs: TabManager): void {
   });
 
   core.registry.registerCommand({
+    name: 'view.sidebar',
+    description:
+      'Toggle (or explicitly set) visibility of the DevTools sidebar. When hidden, the guest page expands to the full window width.',
+    input: z.object({ visible: z.boolean().optional() }),
+    output: z.object({ visible: z.boolean() }),
+    surfaces: { palette: true },
+    paletteTitle: 'Toggle sidebar',
+    handler: async (input) => {
+      tabs.setSidebar(input.visible ?? !tabs.sidebarVisible);
+      return { visible: tabs.sidebarVisible };
+    },
+  });
+
+  core.registry.registerCommand({
     name: 'act.screenshot',
     description:
       'Capture a screenshot of a guest tab via CDP (works even when the tab is occluded). Returns base64 png/jpeg.',

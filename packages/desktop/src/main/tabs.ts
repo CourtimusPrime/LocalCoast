@@ -39,6 +39,8 @@ export class TabManager {
   onTabClosed: ((sessionId: string) => void) | null = null;
   /** Layout chrome: [top tab strip, right sidebar] heights/widths in px. */
   layout = { top: 76, right: 420 };
+  /** DevTools sidebar visibility; hidden = guest views span the full window width. */
+  sidebarVisible = true;
   /** Split view: two sessions side by side, else null. */
   private split: { left: string; right: string } | null = null;
   /** Per-session fixed width override (breakpoint tester). */
@@ -206,6 +208,11 @@ export class TabManager {
   setLayout(layout: Partial<{ top: number; right: number }>): void {
     this.layout = { ...this.layout, ...layout };
     this.applyBounds();
+  }
+
+  setSidebar(visible: boolean): void {
+    this.sidebarVisible = visible;
+    this.setLayout({ right: visible ? 420 : 0 });
   }
 
   setGuestWidth(sessionId: string, width: number, height?: number): void {

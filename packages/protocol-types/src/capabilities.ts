@@ -167,6 +167,11 @@ export const NetworkSummarySchema = z.object({
   resourceType: ResourceTypeSchema.optional(),
   status: z.number().int().optional(),
   startTsMono: z.number(),
+  startTsWall: z.number(),
+  /** Full URL of the page active when the request started (nav-event correlation). */
+  pageUrl: z.string().optional(),
+  /** Store id of the navigation event opening the page segment — distinct per navigation, even to the same path. */
+  navId: z.number().int().optional(),
   durationMs: z.number().optional(),
   uploadedBytes: z.number().optional(),
   downloadedBytes: z.number().optional(),
