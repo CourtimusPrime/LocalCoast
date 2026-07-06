@@ -54,6 +54,21 @@ export async function seededCore(): Promise<{ core: Core; store: EventStore; clo
   append({
     ...base,
     ...at(),
+    actor: 'system',
+    type: 'session.attached',
+    payload: { url: 'http://localhost:3000/', targetType: 'page', port: 3000 },
+  });
+  clock.tick(3);
+  append({
+    ...base,
+    ...at(),
+    type: 'session.navigated',
+    payload: { url: 'http://localhost:3000/login', isRefresh: false },
+  });
+  clock.tick(3);
+  append({
+    ...base,
+    ...at(),
     type: 'network.request',
     requestId: 'r-1',
     payload: {
@@ -77,6 +92,28 @@ export async function seededCore(): Promise<{ core: Core; store: EventStore; clo
     type: 'network.finished',
     requestId: 'r-1',
     payload: { encodedDataLength: 512 },
+  });
+  clock.tick(5);
+  // SPA route change + second request: parity exercises a pageUrl/navId
+  // section boundary in network.list.
+  append({
+    ...base,
+    ...at(),
+    type: 'state.route',
+    payload: { from: 'http://localhost:3000/login', to: 'http://localhost:3000/dashboard', kind: 'push' },
+  });
+  clock.tick(3);
+  append({
+    ...base,
+    ...at(),
+    type: 'network.request',
+    requestId: 'r-2',
+    payload: {
+      url: 'http://localhost:3000/api/me',
+      method: 'GET',
+      headers: { accept: 'application/json' },
+      resourceType: 'fetch',
+    },
   });
   clock.tick(5);
   append({

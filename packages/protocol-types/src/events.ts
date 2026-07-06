@@ -113,6 +113,8 @@ export const NetworkRequestEvent = event(
     method: z.string(),
     headers: HeadersSchema,
     resourceType: ResourceTypeSchema.optional(),
+    /** CDP documentURL: the page the request originated from, exact even for same-tick SPA route + fetch. */
+    documentUrl: z.string().optional(),
     hasPostData: z.boolean().optional(),
     postDataSize: z.number().int().optional(),
     initiator: z

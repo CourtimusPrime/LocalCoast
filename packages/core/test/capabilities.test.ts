@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Core } from '../src/core.js';
 import { registerBuiltins } from '../src/capabilities/builtins.js';
-import { consoleEvent, fakeInspector, makeStore, requestTriple } from './helpers.js';
+import { consoleEvent, fakeInspector, makeStore, navEvent, requestTriple } from './helpers.js';
 
 async function seededCore() {
   const { store, clock } = await makeStore();
@@ -63,6 +63,182 @@ describe('network.list', () => {
       { actor: 'ui' },
     )) as { requests: Array<{ requestId: string }> };
     expect(all.requests).toHaveLength(2);
+    await store.close();
+  });
+});
+
+describe('network.list page correlation', () => {
+  type Stamped = Array<{ requestId: string; pageUrl?: string; navId?: number; startTsWall: number }>;
+  const list = async (core: Awaited<ReturnType<typeof seededCore>>['core']) =>
+    (await core.query('network.list', { sessionId: 's-1' }, { actor: 'ui' })) as {
+      requests: Stamped;
+    };
+
+  it('leaves requests before any navigation unstamped but carries wall time', async () => {
+    const { core, store, clock } = await seededCore();
+    for (const evt of requestTriple('s-1', 0, clock, 'r-1', 'http://localhost:3000/api')) {
+      store.append(evt);
+    }
+    const out = await list(core);
+    expect(out.requests[0]!.pageUrl).toBeUndefined();
+    expect(out.requests[0]!.navId).toBeUndefined();
+    expect(out.requests[0]!.startTsWall).toBe(1_700_000_000_000);
+    await store.close();
+  });
+
+  it('stamps each OAuth stage with the page active at request start', async () => {
+    const { core, store, clock } = await seededCore();
+    store.append(navEvent('s-1', 0, clock, 'http://localhost:3000/', { kind: 'attached' }));
+    clock.tick(10);
+    store.append(navEvent('s-1', 0, clock, 'http://localhost:3000/login'));
+    clock.tick(10);
+    for (const evt of requestTriple('s-1', 0, clock, 'r-a', 'http://localhost:3000/api/session')) {
+      store.append(evt);
+    }
+    clock.tick(20);
+    store.append(navEvent('s-1', 0, clock, 'https://accounts.google.com/o/oauth2/auth', { kind: 'route' }));
+    clock.tick(10);
+    for (const evt of requestTriple('s-1', 0, clock, 'r-b', 'https://accounts.google.com/token')) {
+      store.append(evt);
+    }
+    clock.tick(20);
+    store.append(navEvent('s-1', 0, clock, 'http://localhost:3000/callback'));
+    clock.tick(10);
+    for (const evt of requestTriple('s-1', 0, clock, 'r-c', 'http://localhost:3000/api/me')) {
+      store.append(evt);
+    }
+
+    const byId = new Map((await list(core)).requests.map((r) => [r.requestId, r]));
+    expect(byId.get('r-a')!.pageUrl).toBe('http://localhost:3000/login');
+    expect(byId.get('r-b')!.pageUrl).toBe('https://accounts.google.com/o/oauth2/auth');
+    expect(byId.get('r-c')!.pageUrl).toBe('http://localhost:3000/callback');
+    const navIds = [byId.get('r-a')!.navId, byId.get('r-b')!.navId, byId.get('r-c')!.navId];
+    expect(new Set(navIds).size).toBe(3);
+    await store.close();
+  });
+
+  it('gives revisits of the same path distinct navIds', async () => {
+    const { core, store, clock } = await seededCore();
+    store.append(navEvent('s-1', 0, clock, 'http://localhost:3000/login'));
+    clock.tick(10);
+    for (const evt of requestTriple('s-1', 0, clock, 'r-a', 'http://localhost:3000/a')) {
+      store.append(evt);
+    }
+    clock.tick(20);
+    store.append(navEvent('s-1', 0, clock, 'http://localhost:3000/step2'));
+    clock.tick(10);
+    for (const evt of requestTriple('s-1', 0, clock, 'r-b', 'http://localhost:3000/b')) {
+      store.append(evt);
+    }
+    clock.tick(20);
+    store.append(navEvent('s-1', 0, clock, 'http://localhost:3000/login'));
+    clock.tick(10);
+    for (const evt of requestTriple('s-1', 0, clock, 'r-c', 'http://localhost:3000/c')) {
+      store.append(evt);
+    }
+
+    const byId = new Map((await list(core)).requests.map((r) => [r.requestId, r]));
+    expect(byId.get('r-a')!.pageUrl).toBe('http://localhost:3000/login');
+    expect(byId.get('r-c')!.pageUrl).toBe('http://localhost:3000/login');
+    expect(byId.get('r-a')!.navId).not.toBe(byId.get('r-c')!.navId);
+    await store.close();
+  });
+
+  it('collapses consecutive same-URL navs except explicit refreshes', async () => {
+    const { core, store, clock } = await seededCore();
+    // Startup pair: attached(/) immediately followed by navigated(/) — one segment.
+    store.append(navEvent('s-1', 0, clock, 'http://localhost:3000/', { kind: 'attached' }));
+    clock.tick(1);
+    store.append(navEvent('s-1', 0, clock, 'http://localhost:3000/'));
+    clock.tick(10);
+    for (const evt of requestTriple('s-1', 0, clock, 'r-a', 'http://localhost:3000/a')) {
+      store.append(evt);
+    }
+    clock.tick(20);
+    // Same-URL refresh must open a NEW segment.
+    store.append(navEvent('s-1', 0, clock, 'http://localhost:3000/', { isRefresh: true }));
+    clock.tick(10);
+    for (const evt of requestTriple('s-1', 0, clock, 'r-b', 'http://localhost:3000/b')) {
+      store.append(evt);
+    }
+
+    const byId = new Map(
+      (
+        (await core.query('network.list', { sessionId: 's-1', epoch: 'all' }, { actor: 'ui' })) as {
+          requests: Stamped;
+        }
+      ).requests.map((r) => [r.requestId, r]),
+    );
+    expect(byId.get('r-a')!.pageUrl).toBe('http://localhost:3000/');
+    expect(byId.get('r-b')!.pageUrl).toBe('http://localhost:3000/');
+    expect(byId.get('r-a')!.navId).not.toBe(byId.get('r-b')!.navId);
+    await store.close();
+  });
+
+  it('trusts documentUrl when it disagrees with nav correlation (same-tick SPA race)', async () => {
+    const { core, store, clock } = await seededCore();
+    store.append(navEvent('s-1', 0, clock, 'http://localhost:3000/login'));
+    clock.tick(10);
+    // Fetch fired same-tick as a pushState whose state.route event lands LATER:
+    // documentUrl already reflects the new route.
+    for (const evt of requestTriple('s-1', 0, clock, 'r-a', 'http://localhost:3000/api/consent', {
+      documentUrl: 'http://localhost:3000/consent',
+    })) {
+      store.append(evt);
+    }
+    clock.tick(5);
+    store.append(navEvent('s-1', 0, clock, 'http://localhost:3000/consent', { kind: 'route' }));
+
+    const out = await list(core);
+    expect(out.requests[0]!.pageUrl).toBe('http://localhost:3000/consent');
+    // navId still points at the segment open when the request started.
+    expect(out.requests[0]!.navId).toBeDefined();
+    await store.close();
+  });
+
+  it('keeps the hash from nav events when documentUrl agrees modulo hash (hash routers)', async () => {
+    const { core, store, clock } = await seededCore();
+    store.append(navEvent('s-1', 0, clock, 'http://localhost:3000/login#/consent', { kind: 'route' }));
+    clock.tick(10);
+    // Chromium strips the fragment from documentURL.
+    for (const evt of requestTriple('s-1', 0, clock, 'r-a', 'http://localhost:3000/api/consent', {
+      documentUrl: 'http://localhost:3000/login',
+    })) {
+      store.append(evt);
+    }
+    const out = await list(core);
+    expect(out.requests[0]!.pageUrl).toBe('http://localhost:3000/login#/consent');
+    await store.close();
+  });
+
+  it('stamps across epoch bumps (navs are not epoch-filtered)', async () => {
+    const { core, store, clock } = await seededCore();
+    store.append(navEvent('s-1', 0, clock, 'http://localhost:3000/page'));
+    clock.tick(10);
+    await store.bumpEpoch('s-1');
+    for (const evt of requestTriple('s-1', 1, clock, 'r-a', 'http://localhost:3000/api')) {
+      store.append(evt);
+    }
+    const out = await list(core);
+    expect(out.requests[0]!.requestId).toBe('r-a');
+    expect(out.requests[0]!.pageUrl).toBe('http://localhost:3000/page');
+    await store.close();
+  });
+
+  it('network.get stamps the same pageUrl as network.list', async () => {
+    const { core, store, clock } = await seededCore();
+    store.append(navEvent('s-1', 0, clock, 'http://localhost:3000/login'));
+    clock.tick(10);
+    for (const evt of requestTriple('s-1', 0, clock, 'r-a', 'http://localhost:3000/api')) {
+      store.append(evt);
+    }
+    const listed = (await list(core)).requests[0]!;
+    const got = (await core.query('network.get', { requestId: 'r-a' }, { actor: 'mcp' })) as {
+      summary: { pageUrl?: string; navId?: number; startTsWall: number };
+    };
+    expect(got.summary.pageUrl).toBe('http://localhost:3000/login');
+    expect(got.summary.pageUrl).toBe(listed.pageUrl);
+    expect(got.summary.startTsWall).toBe(listed.startTsWall);
     await store.close();
   });
 });

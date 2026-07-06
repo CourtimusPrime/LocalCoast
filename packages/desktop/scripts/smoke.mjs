@@ -451,6 +451,24 @@ try {
   const shot = await client.callTool({ name: 'lc_act_screenshot', arguments: { sessionId } });
   check('screenshot captured', (shot.structuredContent?.base64 ?? '').length > 1000);
 
+  // Screen recording: JPEG frame sequence + timestamped manifest.
+  const recStart = await client.callTool({ name: 'lc_act_record_start', arguments: { sessionId } });
+  const recordingId = recStart.structuredContent?.recordingId;
+  check('recording started', typeof recordingId === 'string', JSON.stringify(recStart.structuredContent));
+  // Navigation forces repaints (screencast only emits frames on compositor commits).
+  await client.callTool({ name: 'lc_act_navigate', arguments: { sessionId, url: `http://localhost:${PORT}/` } });
+  await new Promise((r) => setTimeout(r, 2000));
+  const recStop = await client.callTool({ name: 'lc_act_record_stop', arguments: { recordingId } });
+  const rec = recStop.structuredContent;
+  check('recording captured frames', (rec?.frameCount ?? 0) >= 1 && rec?.stoppedBy === 'stop',
+    JSON.stringify(rec));
+  if ((rec?.frameCount ?? 0) >= 1) {
+    const manifest = JSON.parse(readFileSync(rec.manifestPath, 'utf8'));
+    check('recording manifest lists frames', manifest.frames.length === rec.frameCount);
+    const firstFrame = readFileSync(join(rec.dir, rec.frames[0].file));
+    check('recording frame is JPEG', firstFrame[0] === 0xff && firstFrame[1] === 0xd8);
+  }
+
   // Agent action visible in audit trail with mcp actor.
   const audit = await client.callTool({
     name: 'lc_events_query',

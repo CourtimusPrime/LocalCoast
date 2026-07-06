@@ -30,6 +30,7 @@ import {
   TargetsListInput,
   TargetsListOutput,
   type NetworkSummarySchema,
+  type StoredEvent,
 } from '@localcoast/protocol-types';
 import {
   ApiSchemaInput,
@@ -60,6 +61,64 @@ import { CapabilityFault } from '../registry.js';
 import type { ProcessInspector } from '../services.js';
 
 type NetworkSummary = z.infer<typeof NetworkSummarySchema>;
+
+/** Event types that mark "the page is now at URL X" on the shared tsMono clock. */
+const NAV_TYPES = ['session.attached', 'session.navigated', 'state.route'] as const;
+
+interface NavPoint {
+  id: number;
+  tsMono: number;
+  url: string;
+}
+
+function navUrlOf(evt: StoredEvent): string | undefined {
+  switch (evt.type) {
+    case 'state.route':
+      return evt.payload.to;
+    case 'session.navigated':
+    case 'session.attached':
+      return evt.payload.url;
+    default:
+      return undefined;
+  }
+}
+
+function stripHash(url: string): string {
+  const i = url.indexOf('#');
+  return i === -1 ? url : url.slice(0, i);
+}
+
+/**
+ * Page URL for a request: the CDP documentURL is exact even when a same-tick
+ * SPA route + fetch races the state.route binding, but Chromium strips the
+ * hash from it. Nav events keep the hash (hash routers). Prefer the nav URL
+ * when the two agree modulo hash; trust documentURL when they genuinely
+ * disagree (race, or a request from another frame).
+ */
+function pickPageUrl(documentUrl: string | undefined, navUrl: string | undefined): string | undefined {
+  if (!documentUrl) return navUrl;
+  if (!navUrl) return documentUrl;
+  return stripHash(documentUrl) === stripHash(navUrl) ? navUrl : documentUrl;
+}
+
+/**
+ * Collapse the raw nav-event stream into page segments. Consecutive same-URL
+ * points merge (the startup session.attached + first session.navigated pair,
+ * router-mount replaces) — except explicit refreshes, which always open a new
+ * segment so before/after-reload requests don't share a section.
+ */
+function buildNavPoints(navEvents: StoredEvent[]): NavPoint[] {
+  const points: NavPoint[] = [];
+  for (const evt of navEvents) {
+    const url = navUrlOf(evt);
+    if (url === undefined) continue;
+    const isRefresh = evt.type === 'session.navigated' && evt.payload.isRefresh;
+    const prev = points[points.length - 1];
+    if (prev && prev.url === url && !isRefresh) continue;
+    points.push({ id: evt.id, tsMono: evt.tsMono, url });
+  }
+  return points;
+}
 
 export interface BuiltinDeps {
   inspector: ProcessInspector;
@@ -112,7 +171,7 @@ export function registerBuiltins(core: Core, deps: BuiltinDeps): void {
   core.registry.registerQuery({
     name: 'network.list',
     description:
-      'List captured network requests for a session as per-request summaries (method, status, timing, sizes, mock/service-worker provenance) plus session totals of bytes uploaded/downloaded. Epoch filter defaults to current (resets on refresh as a view filter — history is never deleted).',
+      'List captured network requests for a session as per-request summaries (method, status, timing, sizes, mock/service-worker provenance) plus session totals of bytes uploaded/downloaded. Each request is stamped with the page URL active when it started (pageUrl from the request documentURL, falling back to navigation/route-event correlation; navId marks the navigation segment) and its wall-clock start time. Epoch filter defaults to current (resets on refresh as a view filter — history is never deleted).',
     input: NetworkListInput,
     output: NetworkListOutput,
     handler: async (input) => {
@@ -128,12 +187,26 @@ export function registerBuiltins(core: Core, deps: BuiltinDeps): void {
         epoch,
         limit: Math.min(input.limit * 8, 8000),
       });
+      // Page-path correlation: nav events are deliberately NOT epoch-filtered —
+      // a request racing an epoch bump still resolves to the prior nav point
+      // (a refresh is same-URL by definition, so the stamp stays correct).
+      const navPoints = buildNavPoints(
+        await store.query({ sessionId: input.sessionId, types: [...NAV_TYPES], limit: 1000 }),
+      );
+      let navIdx = 0;
       const byRequest = new Map<string, NetworkSummary>();
       for (const evt of raw) {
         if (!evt.requestId) continue;
         if (evt.type === 'network.request') {
           const p = evt.payload;
           if (input.urlFilter && !p.url.includes(input.urlFilter)) continue;
+          // Both lists are ascending by tsMono, so a monotone pointer suffices.
+          // Tie rule <=: a nav at the identical tsMono governs the request.
+          for (let next = navPoints[navIdx + 1]; next && next.tsMono <= evt.tsMono; next = navPoints[navIdx + 1]) {
+            navIdx++;
+          }
+          const navCandidate = navPoints[navIdx];
+          const nav = navCandidate && navCandidate.tsMono <= evt.tsMono ? navCandidate : undefined;
           byRequest.set(evt.requestId, {
             requestId: evt.requestId,
             sessionId: evt.sessionId,
@@ -142,6 +215,9 @@ export function registerBuiltins(core: Core, deps: BuiltinDeps): void {
             method: p.method,
             resourceType: p.resourceType,
             startTsMono: evt.tsMono,
+            startTsWall: evt.tsWall,
+            pageUrl: pickPageUrl(p.documentUrl, nav?.url),
+            navId: nav?.id,
             uploadedBytes: p.postDataSize,
             failed: false,
             mocked: Boolean(p.mockedBy),
@@ -188,6 +264,18 @@ export function registerBuiltins(core: Core, deps: BuiltinDeps): void {
       const finEvt = events.find((e) => e.type === 'network.finished');
       const failEvt = events.find((e) => e.type === 'network.failed');
 
+      // Latest nav at-or-before the request (query is last-N ascending, so the
+      // single row IS the latest match). Skips network.list's duplicate-collapse:
+      // navId can differ from the list's across a collapsed duplicate nav —
+      // sections are a list-side concern, the stamped URL is identical.
+      const navs = await store.query({
+        sessionId: reqEvt.sessionId,
+        types: [...NAV_TYPES],
+        tsMonoMax: reqEvt.tsMono,
+        limit: 1,
+      });
+      const nav = navs[0];
+
       const summary: NetworkSummary = {
         requestId: input.requestId,
         sessionId: reqEvt.sessionId,
@@ -197,6 +285,9 @@ export function registerBuiltins(core: Core, deps: BuiltinDeps): void {
         resourceType: reqEvt.payload.resourceType,
         status: resEvt?.type === 'network.response' ? resEvt.payload.status : undefined,
         startTsMono: reqEvt.tsMono,
+        startTsWall: reqEvt.tsWall,
+        pageUrl: pickPageUrl(reqEvt.payload.documentUrl, nav ? navUrlOf(nav) : undefined),
+        navId: nav?.id,
         durationMs: finEvt ? finEvt.tsMono - reqEvt.tsMono : undefined,
         uploadedBytes: reqEvt.payload.postDataSize,
         downloadedBytes:

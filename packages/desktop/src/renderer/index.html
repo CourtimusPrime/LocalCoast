@@ -11,6 +11,8 @@
       <div id="brand">LocalCoast</div>
       <nav id="tabstrip"></nav>
       <button id="reload-btn" title="Reload (new epoch)">⟳</button>
+      <button id="record-btn" title="Record screen">⏺</button>
+      <button id="sidebar-btn" title="Toggle sidebar">◫</button>
     </header>
     <main id="home">
       <h1>Servers</h1>
@@ -26,6 +28,10 @@
         <button data-panel="components">Components</button>
       </nav>
       <section id="panel-network" class="panel active">
+        <div id="network-toolbar">
+          <button id="network-copy">Copy</button>
+          <button id="network-ts-toggle" title="Toggle timestamps">Timestamps</button>
+        </div>
         <div id="network-totals"></div>
         <div id="network-rows"></div>
       </section>
