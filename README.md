@@ -1,21 +1,24 @@
 # LocalCoast
 
-A desktop app for browsing and inspecting localhost dev servers — a single
-surface that replaces browser DevTools, terminal output, and ad-hoc debugging
-utilities. Humans and coding agents are co-primary users: every capability the
-UI exposes is also reachable over the Model Context Protocol, so an agent sees
-exactly what you see.
+An Electon app for browsing and inspecting ’localhost’ dev servers. 
 
-> Product spec: [`PLAN.md`](./PLAN.md) · Architecture & phasing:
-> [`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md) · Build status:
-> [`PROGRESS.md`](./PROGRESS.md) · Invariants: [`CLAUDE.md`](./CLAUDE.md)
+> A single surface that replaces browser DevTools, terminal output, and debugging. **Your next web-dev toolkit.**
+
+Built for humans and agents via MCP.
 
 ## Why
 
-Debugging a local app means juggling three disconnected views: the browser's
-DevTools, the terminal running the server, and whatever one-off tools fill the
-gaps. None of them share a timeline, none are readable by an agent, and none
-survive a page refresh. LocalCoast attaches the Chrome DevTools Protocol to
+Debugging a local app means juggling three disconnected views:
+
+- The browser's
+DevTools (usually Chromium, which is memory-intensive)
+- The terminal running the server
+- One-off tools used to fill the gaps, like variable injectors (e.g. Doppler) and debugging assistants (e.g. Claude, Playwright).
+
+None of them share a timeline, are readable by an agent, nor
+survive a page refresh. 
+
+LocalCoast attaches the Chrome DevTools Protocol to
 each guest server, funnels page events, network traffic, framework state, and
 server-side signals into one queryable event store, and renders it as panels
 for humans and as MCP tools for agents — off the same registry, so the two can
