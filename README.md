@@ -1,55 +1,45 @@
-# LocalCoast
+# 🏝️ LocalCoast
 
-An Electon app for browsing and inspecting ’localhost’ dev servers. 
+![Banner](public/banner.jpeg)
 
-> A single surface that replaces browser DevTools, terminal output, and debugging. **Your next web-dev toolkit.**
-
-Built for humans and agents via MCP.
+An Electon app for browsing and inspecting localhost dev servers for humans and agents.
 
 ## Why
 
 Debugging a local app means juggling three disconnected views:
 
-- The browser's
-DevTools (usually Chromium, which is memory-intensive)
+- The browser's DevTools (usually Chromium, which is memory-intensive)
 - The terminal running the server
 - One-off tools used to fill the gaps, like variable injectors (e.g. Doppler) and debugging assistants (e.g. Claude, Playwright).
 
-None of them share a timeline, are readable by an agent, nor
-survive a page refresh. 
-
-LocalCoast attaches the Chrome DevTools Protocol to
-each guest server, funnels page events, network traffic, framework state, and
-server-side signals into one queryable event store, and renders it as panels
-for humans and as MCP tools for agents — off the same registry, so the two can
-never drift apart.
+LocalCoast funnels Chrome DevTools, page events, network traffic, and state changes into a single, queryable event store.
 
 ## Features at a glance
 
-- **Server list** — localhost servers detected automatically, opened as tabs
+- 🗄️ **Server list**: localhost servers detected automatically, opened as tabs
   with full instrumentation attached before the first navigation.
-- **Network** — every request with bodies, timing, WS/SSE frames, GraphQL
+- 🕸️ **Network**: every request with bodies, timing, WS/SSE frames, GraphQL
   operations; replay with an inline response diff; mock intercepts; live
   API-schema inference with drift flags.
-- **Console & errors** — structured-log aware (pino/winston/bunyan), errors
+- 📜 **Console & errors**: structured-log aware (pino/winston/bunyan), errors
   grouped by stack fingerprint.
-- **Storage** — full local/session/cookie state plus a usage trail of every
+- 🗃️ **Storage**: full local/session/cookie state plus a usage trail of every
   read and write with the JS stack that did it.
-- **Component selection** — right-click any rendered component to copy its
+- 🖱️ **Component selection**: right-click any rendered component to copy its
   repo-relative source path (React incl. 19, Vue, Svelte).
-- **State & time travel** — app-state snapshots, a scrubbable timeline, and
+- 🕰️ **State & time travel**: app-state snapshots, a scrubbable timeline, and
   Redux-DevTools-based store time travel.
-- **Agent-native** — a single `session.observe` call returns the a11y tree,
+- 🤖 **Agent-native**: a single `session.observe` call returns the a11y tree,
   component tree, in-flight requests, and recent console; an assertion runner
   verifies behavior between edits.
-- **Auth** — Token Vault (JWT decode + expiry), auth injection, cookie
+- 📝 **Auth**: Token Vault (JWT decode + expiry), auth injection, cookie
   edit-in-place.
-- **Build awareness** — normalized build/HMR status sniffed from the dev
+- 🧱 **Build awareness**: normalized build/HMR status sniffed from the dev
   server's own WebSocket.
-- **Server-side (opt-in tiers)** — `localcoast run` captures server logs;
+- 🚀 **Server-side (opt-in tiers)**: `localcoast run` captures server logs;
   the Node agent surfaces DB queries and outbound calls; an OTLP receiver
   lights up distributed traces.
-- **DX polish** — bug-report bundles (secrets redacted), port profiles,
+- 🎨 **DX polish**: bug-report bundles (secrets redacted), port profiles,
   fixtures, port-conflict resolver, responsive breakpoint tester, split view,
   and a `Cmd/Ctrl+K` command palette.
 
