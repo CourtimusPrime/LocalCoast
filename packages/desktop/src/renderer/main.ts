@@ -509,6 +509,26 @@ $('#network-ts-toggle').addEventListener('click', () => {
 });
 $('#network-ts-toggle').classList.toggle('active', showNetTs);
 
+let uiRecordingId: string | null = null;
+$('#record-btn').addEventListener('click', () => {
+  const btn = $('#record-btn');
+  if (uiRecordingId === null) {
+    if (!activeSession) return;
+    void core.command('act.record.start', { sessionId: activeSession }).then((r) => {
+      uiRecordingId = (r as { recordingId: string }).recordingId;
+      btn.classList.add('recording');
+    });
+  } else {
+    // Auto-stopped recordings resolve here too via the cached stop result.
+    void core
+      .command('act.record.stop', { recordingId: uiRecordingId })
+      .finally(() => {
+        uiRecordingId = null;
+        btn.classList.remove('recording');
+      });
+  }
+});
+
 $('#sidebar-btn').addEventListener('click', () => {
   // Returned state is authoritative — self-heals drift from palette/MCP toggles.
   void core.command('view.sidebar', {}).then((r) => {

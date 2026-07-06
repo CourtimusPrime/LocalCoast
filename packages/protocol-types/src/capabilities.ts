@@ -497,6 +497,34 @@ export const ActScreenshotOutput = z.object({
   height: z.number().int(),
 });
 
+export const ActRecordStartInput = SessionScope.extend({
+  maxDurationMs: z.number().int().min(500).max(60_000).default(10_000),
+  maxFrames: z.number().int().min(1).max(1000).default(240),
+  quality: z.number().int().min(1).max(100).default(60),
+  maxWidth: z.number().int().min(16).max(3840).default(1280),
+  everyNthFrame: z.number().int().min(1).max(10).default(3),
+});
+export const ActRecordStartOutput = z.object({
+  recordingId: z.string(),
+  dir: z.string(),
+});
+export const ActRecordStopInput = z.object({
+  /** Omit to resolve the session's active recording via sessionId. */
+  recordingId: z.string().optional(),
+  /** Palette dispatch supplies this; used when recordingId is omitted. */
+  sessionId: z.string().optional(),
+});
+export const ActRecordStopOutput = z.object({
+  recordingId: z.string(),
+  dir: z.string(),
+  manifestPath: z.string(),
+  frameCount: z.number().int(),
+  sizeBytes: z.number().int(),
+  durationMs: z.number().int(),
+  stoppedBy: z.enum(['stop', 'maxDuration', 'maxFrames', 'tab_closed']),
+  frames: z.array(z.object({ file: z.string(), tMs: z.number() })),
+});
+
 export const SnapshotCaptureInput = SessionScope.extend({
   name: z.string().optional(),
   pin: z.boolean().default(false),

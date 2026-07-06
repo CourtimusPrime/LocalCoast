@@ -18,6 +18,8 @@ body {
 #tabstrip button .close { margin-left: 8px; opacity: 0.6; }
 #reload-btn { background: transparent; color: var(--dim); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; cursor: pointer; }
 #sidebar-btn { background: transparent; color: var(--dim); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+#record-btn { background: transparent; color: var(--dim); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+#record-btn.recording { color: #e5484d; border-color: #e5484d; }
 body.sidebar-hidden { grid-template-columns: 1fr 0; }
 body.sidebar-hidden #sidebar { display: none; }
 #home { grid-area: home; padding: 20px; overflow-y: auto; }
