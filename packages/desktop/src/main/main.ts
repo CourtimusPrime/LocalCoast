@@ -12,6 +12,7 @@ import { LsofInspector } from './inspector.js';
 import { MockEngine } from './mocks.js';
 import { registerNetworkCapabilities } from './network-capabilities.js';
 import { registerObserveCapabilities } from './observe-capabilities.js';
+import { PreviewCapturer } from './preview.js';
 import { registerProjectCapabilities } from './project-capabilities.js';
 import { registerShellCapabilities } from './shell-capabilities.js';
 import { registerSnapshotCapabilities } from './snapshot-capabilities.js';
@@ -68,11 +69,12 @@ async function boot(): Promise<void> {
   });
 
   const tabs = new TabManager(window, store);
+  const preview = new PreviewCapturer(window, tabs);
   const mockEngine = new MockEngine();
   tabs.onTabOpened = (sessionId, cdp) => void mockEngine.attachTab(sessionId, cdp);
   tabs.onTabClosed = (sessionId) => void mockEngine.detachTab(sessionId);
   const diffMode = new DiffMode(core, tabs);
-  registerShellCapabilities(core, tabs);
+  registerShellCapabilities(core, tabs, preview);
   registerFrameworkCapabilities(core, tabs, inspector);
   registerNetworkCapabilities(core, tabs, mockEngine, inspector);
   registerSnapshotCapabilities(core, tabs);
@@ -149,6 +151,7 @@ async function boot(): Promise<void> {
   app.on('window-all-closed', () => {
     void (async () => {
       otlp.stop();
+      await preview.dispose();
       await mcpServer?.stop();
       await store.close();
       app.quit();

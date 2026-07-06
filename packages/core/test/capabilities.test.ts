@@ -151,14 +151,27 @@ describe('targets.list', () => {
   it('merges discovered servers with attach state', async () => {
     const { core, store } = await seededCore();
     const out = (await core.query('targets.list', {}, { actor: 'mcp' })) as {
-      targets: Array<{ targetKey: string; attached: boolean; sessionId?: string }>;
+      targets: Array<{
+        targetKey: string;
+        url?: string;
+        projectName?: string;
+        projectRoot?: string;
+        attached: boolean;
+        sessionId?: string;
+      }>;
     };
     expect(out.targets).toHaveLength(2);
     const attached = out.targets.find((t) => t.targetKey === 'port:3000');
     expect(attached?.attached).toBe(true);
     expect(attached?.sessionId).toBe('s-1');
+    // Card fields: URL, project name (from package.json), and project root.
+    expect(attached?.url).toBe('http://localhost:3000/');
+    expect(attached?.projectName).toBe('web-app');
+    expect(attached?.projectRoot).toBe('/proj/web');
     const unattached = out.targets.find((t) => t.targetKey === 'port:8080');
     expect(unattached?.attached).toBe(false);
+    expect(unattached?.url).toBe('http://localhost:8080/');
+    expect(unattached?.projectRoot).toBe('/proj/api');
     await store.close();
   });
 });

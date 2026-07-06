@@ -400,6 +400,13 @@ try {
   const shot = await client.callTool({ name: 'lc_act_screenshot', arguments: { sessionId } });
   check('screenshot captured', (shot.structuredContent?.base64 ?? '').length > 1000);
 
+  // Server-list card thumbnail (attached path — the smoke server has an open tab).
+  const preview = await client.callTool({ name: 'lc_targets_preview', arguments: { port: PORT } });
+  check('server preview thumbnail captured',
+    preview.structuredContent?.available === true &&
+      (preview.structuredContent?.base64 ?? '').length > 1000,
+    JSON.stringify({ available: preview.structuredContent?.available, reason: preview.structuredContent?.reason }));
+
   // Agent action visible in audit trail with mcp actor.
   const audit = await client.callTool({
     name: 'lc_events_query',

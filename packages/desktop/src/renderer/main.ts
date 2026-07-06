@@ -18,7 +18,7 @@ declare global {
 }
 
 export const PANEL_DEPS: Record<string, string[]> = {
-  serverList: ['targets.list', 'sessions.list'],
+  serverList: ['targets.list', 'sessions.list', 'targets.preview'],
   network: ['network.list'],
   console: ['console.list'],
   storage: ['storage.state', 'storage.trail'],
@@ -39,9 +39,60 @@ let liveUnsub: (() => void) | null = null;
 interface TargetRow {
   targetKey: string;
   port: number;
+  url?: string;
+  projectName?: string;
+  projectRoot?: string;
   pid?: number;
   attached: boolean;
   sessionId?: string;
+}
+
+// Preview thumbnails are fetched lazily per card via targets.preview and cached
+// here so the 3s server-list rebuild repaints instantly (no flicker) and only
+// re-queries when an entry goes stale.
+interface PreviewCacheEntry {
+  dataUrl: string | null;
+  fetchedAt: number;
+}
+const PREVIEW_REFRESH_MS = 30_000;
+const previewCache = new Map<number, PreviewCacheEntry>();
+const previewInflight = new Set<number>();
+
+function folderName(root?: string): string | undefined {
+  if (!root) return undefined;
+  const parts = root.split(/[/\\]/).filter(Boolean);
+  return parts[parts.length - 1];
+}
+
+function applyPreview(img: HTMLImageElement, port: number): void {
+  const cached = previewCache.get(port);
+  if (cached?.dataUrl) img.src = cached.dataUrl;
+  if (!cached || Date.now() - cached.fetchedAt > PREVIEW_REFRESH_MS) void fetchPreview(port);
+}
+
+async function fetchPreview(port: number): Promise<void> {
+  if (previewInflight.has(port)) return;
+  previewInflight.add(port);
+  try {
+    const out = (await core.query('targets.preview', { port })) as {
+      available: boolean;
+      base64?: string;
+      mimeType?: string;
+    };
+    if (out.available && out.base64 && out.mimeType) {
+      const dataUrl = `data:${out.mimeType};base64,${out.base64}`;
+      previewCache.set(port, { dataUrl, fetchedAt: Date.now() });
+      const img = document.querySelector<HTMLImageElement>(`img.preview[data-port="${port}"]`);
+      if (img) img.src = dataUrl;
+    } else {
+      // Mark the attempt so we back off rather than re-query every 3s poll.
+      previewCache.set(port, { dataUrl: null, fetchedAt: Date.now() });
+    }
+  } catch {
+    /* transient — allow a retry on the next poll */
+  } finally {
+    previewInflight.delete(port);
+  }
 }
 
 async function refreshServers(): Promise<void> {
@@ -51,10 +102,24 @@ async function refreshServers(): Promise<void> {
     ...targets.map((t) => {
       const card = document.createElement('div');
       card.className = 'server-card';
-      card.innerHTML = `
-        <div class="port">localhost:${t.port}</div>
-        <div class="meta">${t.pid ? `pid ${t.pid}` : 'process unknown'}</div>
-        <span class="badge ${t.attached ? 'attached' : ''}">${t.attached ? 'attached' : 'detected'}</span>`;
+
+      const img = document.createElement('img');
+      img.className = 'preview';
+      img.alt = '';
+      img.dataset.port = String(t.port);
+      applyPreview(img, t.port);
+
+      const h1 = document.createElement('h1');
+      h1.textContent = t.projectName || folderName(t.projectRoot) || `localhost:${t.port}`;
+
+      const h2 = document.createElement('h2');
+      h2.textContent = t.url || `http://localhost:${t.port}/`;
+
+      const badge = document.createElement('span');
+      badge.className = `badge ${t.attached ? 'attached' : ''}`;
+      badge.textContent = t.attached ? 'attached' : 'detected';
+
+      card.append(img, h1, h2, badge);
       card.addEventListener('click', () => void openTab(t.port));
       return card;
     }),

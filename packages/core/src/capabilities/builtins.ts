@@ -474,6 +474,9 @@ export function registerBuiltins(core: Core, deps: BuiltinDeps): void {
           return {
             targetKey,
             port: srv.port,
+            url: `http://localhost:${srv.port}/`,
+            projectName: srv.projectName,
+            projectRoot: srv.cwd,
             pid: srv.pid,
             attached: sessionId !== undefined,
             sessionId,

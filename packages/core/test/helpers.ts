@@ -43,7 +43,7 @@ export async function makeStore(clock: FakeClock = new FakeClock()): Promise<{
 
 export const fakeInspector: ProcessInspector = {
   listListeningServers: async () => [
-    { port: 3000, pid: 100, cmd: 'node vite', cwd: '/proj/web', protocol: 'http' },
+    { port: 3000, pid: 100, cmd: 'node vite', cwd: '/proj/web', projectName: 'web-app', protocol: 'http' },
     { port: 8080, pid: 200, cmd: 'node api', cwd: '/proj/api', protocol: 'http' },
   ],
   envOf: async () => undefined,
