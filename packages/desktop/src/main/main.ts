@@ -14,6 +14,7 @@ import { registerNetworkCapabilities } from './network-capabilities.js';
 import { registerObserveCapabilities } from './observe-capabilities.js';
 import { PreviewCapturer } from './preview.js';
 import { registerProjectCapabilities } from './project-capabilities.js';
+import { TabRecorder, registerRecordCapabilities } from './record-capabilities.js';
 import { registerShellCapabilities } from './shell-capabilities.js';
 import { registerSnapshotCapabilities } from './snapshot-capabilities.js';
 import { GUEST_PARTITION, TabManager } from './tabs.js';
@@ -72,7 +73,12 @@ async function boot(): Promise<void> {
   const preview = new PreviewCapturer(window, tabs);
   const mockEngine = new MockEngine();
   tabs.onTabOpened = (sessionId, cdp) => void mockEngine.attachTab(sessionId, cdp);
-  tabs.onTabClosed = (sessionId) => void mockEngine.detachTab(sessionId);
+  const recorder = new TabRecorder(store);
+  // onTabClosed is single-consumer: compose every interested party here.
+  tabs.onTabClosed = (sessionId) => {
+    void mockEngine.detachTab(sessionId);
+    void recorder.finalizeForSession(sessionId, 'tab_closed');
+  };
   const diffMode = new DiffMode(core, tabs);
   registerShellCapabilities(core, tabs, preview);
   registerFrameworkCapabilities(core, tabs, inspector);
@@ -81,6 +87,7 @@ async function boot(): Promise<void> {
   registerDiffCapabilities(core, tabs, diffMode);
   registerObserveCapabilities(core, tabs, () => undefined);
   registerProjectCapabilities(core, tabs, mockEngine, inspector);
+  registerRecordCapabilities(core, tabs, recorder);
   tabs.onGuestContextMenu = (sessionId, x, y) => {
     void core.command('component.copyPath', { sessionId, x, y }, { actor: 'ui' }).catch(() => {});
   };

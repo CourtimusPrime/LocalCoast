@@ -67,13 +67,46 @@ export function consoleEvent(
   };
 }
 
+export function navEvent(
+  sessionId: string,
+  epoch: number,
+  clock: FakeClock,
+  url: string,
+  opts: { kind?: 'attached' | 'navigated' | 'route'; isRefresh?: boolean } = {},
+): AnyEvent {
+  const base = {
+    sessionId,
+    epoch,
+    tsWall: clock.wall(),
+    tsMono: clock.mono(),
+  };
+  switch (opts.kind ?? 'navigated') {
+    case 'attached':
+      return {
+        ...base,
+        actor: 'system',
+        type: 'session.attached',
+        payload: { url, targetType: 'page' },
+      };
+    case 'route':
+      return { ...base, actor: 'app', type: 'state.route', payload: { to: url, kind: 'push' } };
+    default:
+      return {
+        ...base,
+        actor: 'app',
+        type: 'session.navigated',
+        payload: { url, isRefresh: opts.isRefresh ?? false },
+      };
+  }
+}
+
 export function requestTriple(
   sessionId: string,
   epoch: number,
   clock: FakeClock,
   requestId: string,
   url: string,
-  opts: { status?: number; size?: number; postSize?: number } = {},
+  opts: { status?: number; size?: number; postSize?: number; documentUrl?: string } = {},
 ): AnyEvent[] {
   const base = {
     sessionId,
@@ -92,6 +125,7 @@ export function requestTriple(
         method: 'GET',
         headers: { accept: '*/*' },
         resourceType: 'fetch',
+        documentUrl: opts.documentUrl,
         postDataSize: opts.postSize,
       },
     },

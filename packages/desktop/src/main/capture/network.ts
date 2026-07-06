@@ -136,6 +136,7 @@ export class NetworkCapture {
             method: req.method,
             headers: req.headers,
             resourceType: CDP_TO_RESOURCE[params.type as string] ?? 'other',
+            documentUrl: (params.documentURL as string | undefined) || undefined,
             hasPostData: Boolean(postData) || Boolean(params.hasPostData),
             postDataSize: postData ? Buffer.byteLength(postData) : undefined,
             graphqlOperation,

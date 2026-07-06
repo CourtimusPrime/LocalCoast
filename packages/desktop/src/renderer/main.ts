@@ -198,6 +198,10 @@ interface NetworkSummary {
   status?: number;
   failed: boolean;
   downloadedBytes?: number;
+  startTsMono: number;
+  startTsWall: number;
+  pageUrl?: string;
+  navId?: number;
 }
 
 function formatBytes(n: number): string {
@@ -206,12 +210,39 @@ function formatBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(2)} MB`;
 }
 
+function formatWallClock(tsWall: number): string {
+  const d = new Date(tsWall);
+  const p = (n: number, w = 2) => String(n).padStart(w, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
+}
+
+/** Section header text: bare path for the local dev server, host+path for cross-origin hops (OAuth providers). */
+function sectionLabel(pageUrl?: string): string {
+  if (!pageUrl) return '(unknown page)';
+  try {
+    const u = new URL(pageUrl);
+    const local = u.hostname === 'localhost' || u.hostname === '127.0.0.1';
+    return local ? u.pathname || '/' : `${u.host}${u.pathname}`;
+  } catch {
+    return pageUrl;
+  }
+}
+
+let lastNetworkText = '';
+let showNetTs = false;
+try {
+  showNetTs = localStorage.getItem('lc.net.showTs') === '1';
+} catch {
+  /* storage unavailable — toggle stays session-only */
+}
+
 async function renderNetwork(): Promise<void> {
   const totalsEl = $('#network-totals');
   const rowsEl = $('#network-rows');
   if (!activeSession) {
     totalsEl.textContent = 'Open a server tab to capture traffic.';
     rowsEl.replaceChildren();
+    lastNetworkText = '';
     return;
   }
   const out = (await core.query('network.list', { sessionId: activeSession, limit: 200 })) as {
@@ -219,19 +250,51 @@ async function renderNetwork(): Promise<void> {
     totals: { uploadedBytes: number; downloadedBytes: number; requestCount: number };
   };
   totalsEl.textContent = `▲ ${formatBytes(out.totals.uploadedBytes)}   ▼ ${formatBytes(out.totals.downloadedBytes)}   ${out.totals.requestCount} requests (this epoch)`;
-  rowsEl.replaceChildren(
-    ...out.requests.map((r) => {
-      const row = document.createElement('div');
-      row.className = 'net-row';
-      const statusClass = r.failed ? 'failed' : `status-${String(r.status ?? 0)[0]}`;
-      const path = r.url.replace(/^https?:\/\/[^/]+/, '') || '/';
-      row.innerHTML = `
-        <span class="${statusClass}">${r.failed ? 'ERR' : (r.status ?? '…')}</span>
-        <span class="url" title="${r.url}">${r.method} ${path}</span>
-        <span class="size">${r.downloadedBytes !== undefined ? formatBytes(r.downloadedBytes) : ''}</span>`;
-      return row;
-    }),
-  );
+
+  // Chronological display (query returns newest-first): an OAuth flow reads
+  // top-to-bottom, one section per navigation.
+  const rows = [...out.requests].sort((a, b) => a.startTsMono - b.startTsMono);
+  const frag = document.createDocumentFragment();
+  const copyLines: string[] = [];
+  // Composite key: navId separates revisits of the same path; pageUrl separates
+  // a same-tick SPA route + fetch whose navId still points at the prior segment.
+  let prevSection: string | null = null;
+  for (const r of rows) {
+    const sectionKey = `${r.navId ?? 'pre'}|${r.pageUrl ?? ''}`;
+    if (sectionKey !== prevSection) {
+      prevSection = sectionKey;
+      const section = document.createElement('div');
+      section.className = 'net-section';
+      section.textContent = sectionLabel(r.pageUrl);
+      if (r.pageUrl) section.title = r.pageUrl;
+      frag.append(section);
+      copyLines.push(`== Page: ${r.pageUrl ?? '(unknown)'} ==`);
+    }
+    const row = document.createElement('div');
+    row.className = 'net-row';
+    const status = document.createElement('span');
+    status.className = r.failed ? 'failed' : `status-${String(r.status ?? 0)[0]}`;
+    status.textContent = r.failed ? 'ERR' : String(r.status ?? '…');
+    const ts = document.createElement('span');
+    ts.className = 'ts';
+    ts.textContent = formatWallClock(r.startTsWall);
+    const url = document.createElement('span');
+    url.className = 'url';
+    url.title = r.url;
+    url.textContent = `${r.method} ${r.url.replace(/^https?:\/\/[^/]+/, '') || '/'}`;
+    const size = document.createElement('span');
+    size.className = 'size';
+    size.textContent = r.downloadedBytes !== undefined ? formatBytes(r.downloadedBytes) : '';
+    row.append(status, ts, url, size);
+    frag.append(row);
+    const statusText = r.failed ? 'ERR' : (r.status ?? 'pending');
+    const sizeText = r.downloadedBytes !== undefined ? ` ${formatBytes(r.downloadedBytes)}` : '';
+    copyLines.push(`[${formatWallClock(r.startTsWall)}] ${r.method} ${r.url} ${statusText}${sizeText}`);
+  }
+  lastNetworkText = copyLines.join('\n');
+  rowsEl.classList.toggle('show-ts', showNetTs);
+  rowsEl.replaceChildren(frag);
+  rowsEl.scrollTop = rowsEl.scrollHeight;
 }
 
 // ---------------------------------------------------------------------------
@@ -493,6 +556,49 @@ $('#reload-btn').addEventListener('click', () => {
 
 $('#console-copy').addEventListener('click', () => {
   void navigator.clipboard.writeText(lastConsoleText);
+});
+
+$('#network-copy').addEventListener('click', () => {
+  void navigator.clipboard.writeText(lastNetworkText);
+});
+
+$('#network-ts-toggle').addEventListener('click', () => {
+  showNetTs = !showNetTs;
+  try {
+    localStorage.setItem('lc.net.showTs', showNetTs ? '1' : '0');
+  } catch {
+    /* session-only */
+  }
+  $('#network-ts-toggle').classList.toggle('active', showNetTs);
+  $('#network-rows').classList.toggle('show-ts', showNetTs);
+});
+$('#network-ts-toggle').classList.toggle('active', showNetTs);
+
+let uiRecordingId: string | null = null;
+$('#record-btn').addEventListener('click', () => {
+  const btn = $('#record-btn');
+  if (uiRecordingId === null) {
+    if (!activeSession) return;
+    void core.command('act.record.start', { sessionId: activeSession }).then((r) => {
+      uiRecordingId = (r as { recordingId: string }).recordingId;
+      btn.classList.add('recording');
+    });
+  } else {
+    // Auto-stopped recordings resolve here too via the cached stop result.
+    void core
+      .command('act.record.stop', { recordingId: uiRecordingId })
+      .finally(() => {
+        uiRecordingId = null;
+        btn.classList.remove('recording');
+      });
+  }
+});
+
+$('#sidebar-btn').addEventListener('click', () => {
+  // Returned state is authoritative — self-heals drift from palette/MCP toggles.
+  void core.command('view.sidebar', {}).then((r) => {
+    document.body.classList.toggle('sidebar-hidden', !(r as { visible: boolean }).visible);
+  });
 });
 
 $('#palette-input').addEventListener('input', (evt) => {
