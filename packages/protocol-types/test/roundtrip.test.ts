@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AgentBatchSchema,
   AnyArtifactSchema,
   AnyEventSchema,
+  ComponentCopyPathInput,
+  ComponentInspectModeInput,
   defaultMcpToolName,
   EVENT_TYPES,
   EventsQueryInput,
@@ -58,6 +61,85 @@ describe('event taxonomy', () => {
     expect(EVENT_TYPES).toContain('storage.op');
     expect(EVENT_TYPES.length).toBeGreaterThanOrEqual(30);
     expect(new Set(EVENT_TYPES).size).toBe(EVENT_TYPES.length);
+  });
+});
+
+describe('page-agent component inspect wire contract', () => {
+  const batch = (msg: Record<string, unknown>) => ({
+    v: 1 as const,
+    world: 'isolated' as const,
+    messages: [msg],
+  });
+
+  it('accepts hover, pick, and mode messages', () => {
+    expect(() =>
+      AgentBatchSchema.parse(batch({ kind: 'component.hover', x: 10, y: 20, seq: 1, t: 5.5 })),
+    ).not.toThrow();
+    expect(() =>
+      AgentBatchSchema.parse(
+        batch({
+          kind: 'component.pick',
+          x: 10,
+          y: 20,
+          seq: 2,
+          selectorPath: 'html > body > button#buy',
+          t: 6,
+        }),
+      ),
+    ).not.toThrow();
+    expect(() =>
+      AgentBatchSchema.parse(batch({ kind: 'component.mode', enabled: false, t: 7 })),
+    ).not.toThrow();
+  });
+
+  it('rejects hostile shapes: non-int coords, oversize selectorPath', () => {
+    expect(() =>
+      AgentBatchSchema.parse(batch({ kind: 'component.hover', x: 1.5, y: 0, seq: 0, t: 1 })),
+    ).toThrow();
+    expect(() =>
+      AgentBatchSchema.parse(
+        batch({
+          kind: 'component.pick',
+          x: 0,
+          y: 0,
+          seq: 0,
+          selectorPath: 'x'.repeat(2049),
+          t: 1,
+        }),
+      ),
+    ).toThrow();
+  });
+
+  it('strips unknown top-level batch fields rather than storing them', () => {
+    // Documents why payloads outside the schema (e.g. the legacy contextmenu
+    // `hit`) never reach the host: parsed output omits them.
+    const parsed = AgentBatchSchema.parse({
+      v: 1,
+      world: 'isolated',
+      messages: [],
+      hit: { selectorPath: 'div', x: 1, y: 1, t: 1 },
+    });
+    expect('hit' in parsed).toBe(false);
+  });
+});
+
+describe('component capability IO', () => {
+  it('copyPath defaults to path format and bounds fallbackSelector', () => {
+    const parsed = ComponentCopyPathInput.parse({ sessionId: 's-1', x: 4, y: 8 });
+    expect(parsed.format).toBe('path');
+    expect(() =>
+      ComponentCopyPathInput.parse({
+        sessionId: 's-1',
+        x: 4,
+        y: 8,
+        fallbackSelector: 'x'.repeat(2049),
+      }),
+    ).toThrow();
+  });
+
+  it('inspectMode treats omitted enabled as toggle (palette passes sessionId only)', () => {
+    const parsed = ComponentInspectModeInput.parse({ sessionId: 's-1' });
+    expect(parsed.enabled).toBeUndefined();
   });
 });
 

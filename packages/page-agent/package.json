@@ -17,7 +17,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
     "test": "vitest run test/build.test.ts",
-    "test:chromium": "vitest run test/chromium.test.ts test/adapters.test.ts"
+    "test:chromium": "vitest run test/chromium.test.ts test/adapters.test.ts test/isolated.test.ts"
   },
   "devDependencies": {
     "@localcoast/protocol-types": "workspace:*",

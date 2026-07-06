@@ -23,6 +23,7 @@ export const PANEL_DEPS: Record<string, string[]> = {
   console: ['console.list'],
   storage: ['storage.state', 'storage.trail'],
   perf: ['resources.samples', 'build.status'],
+  components: ['component.tree', 'console.list', 'component.inspectMode'],
   palette: ['actions.list', 'act.dispatch'],
 };
 
@@ -327,8 +328,82 @@ async function renderPerf(): Promise<void> {
   if (build.statuses.length === 0) buildEl.innerHTML = '<p class="hint">No build activity sniffed yet.</p>';
 }
 
+// ---------------------------------------------------------------------------
+// Components panel: inspect-mode toggle, last picked, component tree
+// ---------------------------------------------------------------------------
+
+interface ComponentTreeNode {
+  name: string;
+  sourcePath?: string;
+  children?: ComponentTreeNode[];
+}
+
+function componentTreeList(nodes: ComponentTreeNode[]): HTMLUListElement {
+  const ul = document.createElement('ul');
+  ul.className = 'component-tree';
+  for (const node of nodes) {
+    const li = document.createElement('li');
+    const name = document.createElement('span');
+    name.textContent = node.name;
+    li.append(name);
+    if (node.sourcePath) {
+      const path = document.createElement('span');
+      path.className = 'component-path';
+      path.textContent = ` ${node.sourcePath}`;
+      li.append(path);
+    }
+    if (node.children?.length) li.append(componentTreeList(node.children));
+    ul.append(li);
+  }
+  return ul;
+}
+
+async function renderComponents(): Promise<void> {
+  // component.tree costs a guest Runtime.evaluate — skip while hidden.
+  if (!$('#panel-components').classList.contains('active')) return;
+  const pickedEl = $('#components-picked');
+  const treeEl = $('#components-tree');
+  if (!activeSession) {
+    pickedEl.replaceChildren();
+    treeEl.innerHTML = '<p class="hint">Open a server tab to inspect components.</p>';
+    return;
+  }
+  const cons = (await core.query('console.list', { sessionId: activeSession, limit: 300 })) as {
+    entries: ConsoleEntry[];
+  };
+  const picked = [...cons.entries]
+    .reverse()
+    .find((e) => e.payload.text.startsWith('Copied component path:') || e.payload.text.startsWith('Copied DOM selector:'));
+  pickedEl.textContent = picked
+    ? `Last picked — ${picked.payload.text.replace(/^Copied (component path|DOM selector): /, '')}`
+    : 'Nothing picked yet.';
+
+  const out = (await core.query('component.tree', { sessionId: activeSession })) as {
+    framework?: string;
+    tree?: ComponentTreeNode;
+    truncated: boolean;
+  };
+  if (!out.tree) {
+    treeEl.innerHTML = '<p class="hint">No framework component tree detected on this page.</p>';
+    return;
+  }
+  treeEl.replaceChildren(componentTreeList([out.tree]));
+  if (out.truncated) {
+    const note = document.createElement('p');
+    note.className = 'hint';
+    note.textContent = '(tree truncated)';
+    treeEl.append(note);
+  }
+}
+
 async function renderPanels(): Promise<void> {
-  await Promise.all([renderNetwork(), renderConsole(), renderStorage(), renderPerf()]);
+  await Promise.all([
+    renderNetwork(),
+    renderConsole(),
+    renderStorage(),
+    renderPerf(),
+    renderComponents(),
+  ]);
 }
 
 // ---------------------------------------------------------------------------
@@ -419,6 +494,8 @@ for (const btn of document.querySelectorAll<HTMLButtonElement>('#panel-tabs butt
     document.querySelectorAll('.panel').forEach((p) => p.classList.remove('active'));
     btn.classList.add('active');
     $(`#panel-${btn.dataset.panel}`).classList.add('active');
+    // Lazily-rendered panels (components) skip work while hidden — repaint now.
+    if (btn.dataset.panel === 'components') void renderComponents();
   });
 }
 
@@ -428,6 +505,18 @@ $('#reload-btn').addEventListener('click', () => {
 
 $('#console-copy').addEventListener('click', () => {
   void navigator.clipboard.writeText(lastConsoleText);
+});
+
+$('#components-inspect').addEventListener('click', () => {
+  if (!activeSession) return;
+  void core
+    .command('component.inspectMode', { sessionId: activeSession })
+    .then((result) => {
+      const { enabled } = result as { enabled: boolean };
+      $('#components-inspect').textContent = enabled ? 'Inspect: ON' : 'Inspect: off';
+      $('#components-inspect').classList.toggle('active', enabled);
+    })
+    .catch(() => {});
 });
 
 $('#palette-input').addEventListener('input', (evt) => {

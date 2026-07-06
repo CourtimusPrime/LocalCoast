@@ -1,9 +1,12 @@
 import { clipboard } from 'electron';
-import { z } from 'zod';
 import { CapabilityFault, type Core, type ProcessInspector } from '@localcoast/core';
 import {
   ComponentAtInput,
   ComponentAtOutput,
+  ComponentCopyPathInput,
+  ComponentCopyPathOutput,
+  ComponentInspectModeInput,
+  ComponentInspectModeOutput,
   ComponentTreeInput,
   ComponentTreeOutput,
   StateJumpInput,
@@ -11,6 +14,7 @@ import {
   StoresListInput,
   StoresListOutput,
 } from '@localcoast/protocol-types';
+import type { ComponentInspectController } from './component-inspect.js';
 import { relativizeSourcePath } from './script-catalog.js';
 import type { TabManager } from './tabs.js';
 
@@ -44,6 +48,7 @@ export function registerFrameworkCapabilities(
   core: Core,
   tabs: TabManager,
   inspector: ProcessInspector,
+  inspect: ComponentInspectController,
 ): void {
   async function projectRootOf(sessionId: string): Promise<string | undefined> {
     const tab = tabs.get(sessionId);
@@ -134,19 +139,23 @@ export function registerFrameworkCapabilities(
   core.registry.registerCommand({
     name: 'component.copyPath',
     description:
-      'Component Selection: resolve the component at coordinates and copy its repo-relative path to the clipboard (the guest right-click flow).',
-    input: ComponentAtInput,
-    output: ComponentAtOutput.extend({ copied: z.boolean() }),
+      'Component Selection: resolve the component at coordinates and copy it to the clipboard. format "path" (default) copies `path:line`; "nameAndPath" copies `Name (path:line)` — the Option-click inspect flow. When nothing resolves, fallbackSelector (a structural DOM locator) is copied instead if provided.',
+    input: ComponentCopyPathInput,
+    output: ComponentCopyPathOutput,
     surfaces: { palette: true },
     paletteTitle: 'Copy component path at cursor',
     handler: async (input) => {
       const resolved = await componentAt(input);
-      const copied = Boolean(resolved.sourcePath);
+      let copiedText: string | undefined;
       if (resolved.sourcePath) {
-        clipboard.writeText(
-          resolved.line ? `${resolved.sourcePath}:${resolved.line}` : resolved.sourcePath,
-        );
+        const loc = resolved.line ? `${resolved.sourcePath}:${resolved.line}` : resolved.sourcePath;
+        copiedText =
+          input.format === 'nameAndPath' ? `${resolved.componentName ?? 'Component'} (${loc})` : loc;
+      } else if (input.fallbackSelector) {
+        copiedText = input.fallbackSelector;
       }
+      if (copiedText) clipboard.writeText(copiedText);
+      const copied = Boolean(copiedText);
       core.store.appendNow({
         sessionId: input.sessionId,
         actor: 'ui',
@@ -154,12 +163,40 @@ export function registerFrameworkCapabilities(
         payload: {
           level: 'info',
           source: 'localcoast',
-          text: copied
-            ? `Copied component path: ${resolved.sourcePath}${resolved.line ? `:${resolved.line}` : ''} (${resolved.componentName ?? 'unknown'})`
-            : `Component Selection: nothing resolvable at ${input.x},${input.y}`,
+          text: !copied
+            ? `Component Selection: nothing resolvable at ${input.x},${input.y}`
+            : resolved.sourcePath
+              ? `Copied component path: ${copiedText}`
+              : `Copied DOM selector: ${copiedText}`,
         },
       });
-      return { ...resolved, copied };
+      return { ...resolved, copied, copiedText };
+    },
+  });
+
+  core.registry.registerCommand({
+    name: 'component.inspectMode',
+    description:
+      'Toggle sticky component inspect mode on a guest tab: hovered components get a highlight + name/path tooltip, clicking copies `Name (path:line)` to the clipboard, Esc exits. Equivalent to holding Option/Alt over the page. Omit `enabled` to toggle.',
+    input: ComponentInspectModeInput,
+    output: ComponentInspectModeOutput,
+    surfaces: { palette: true },
+    paletteTitle: 'Toggle component inspect mode',
+    handler: async (input) => {
+      const result = await inspect.setMode(input.sessionId, input.enabled);
+      core.store.appendNow({
+        sessionId: input.sessionId,
+        actor: 'ui',
+        type: 'console.entry',
+        payload: {
+          level: 'info',
+          source: 'localcoast',
+          text: result.enabled
+            ? 'Component inspect mode ON — hover to inspect, click to copy, Esc to exit'
+            : 'Component inspect mode off',
+        },
+      });
+      return result;
     },
   });
 

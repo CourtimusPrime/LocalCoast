@@ -66,3 +66,10 @@ body {
 .palette-item.sel { background: #22303e; }
 .palette-item .title { color: var(--fg); }
 .palette-item .id { color: var(--dim); font-family: ui-monospace, monospace; font-size: 11px; }
+#components-inspect { margin: 2px 0 8px; background: transparent; border: 1px solid var(--border); color: var(--dim); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+#components-inspect.active { color: var(--accent); border-color: var(--accent); }
+#components-picked { font-family: ui-monospace, monospace; font-size: 12px; padding: 6px 2px; color: var(--fg); border-bottom: 1px solid var(--border); word-break: break-all; }
+.component-tree { list-style: none; padding-left: 14px; margin: 2px 0; font-family: ui-monospace, monospace; font-size: 12px; }
+#components-tree > .component-tree { padding-left: 0; }
+.component-tree li { padding: 2px 0; }
+.component-tree .component-path { color: var(--dim); font-size: 11px; }

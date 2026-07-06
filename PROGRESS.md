@@ -161,6 +161,34 @@ with a written reason). 98 automated tests + a 48-check end-to-end smoke, all gr
   `ports.release`), env inspector, responsive breakpoint tester + RTL, split
   view, command palette (Cmd+K → same action registry as MCP).
 
+### Post-phase — Option-hold component inspect mode ✅
+
+- Interactive Component Selection on top of the phase-4 machinery: hold
+  **Option/Alt** over the guest (or toggle sticky mode) → pointer cursor,
+  hovered component highlighted with a name + repo-relative-path tooltip;
+  **Option-click** copies `Name (path:line)` for pasting into an agent
+  composer (DOM-selector fallback on non-framework pages); Esc exits and syncs
+  mode state back to the host.
+- Wire contract first: `component.hover`/`component.pick`/`component.mode`
+  joined `AgentMessageSchema`. Interaction + overlay (highlight box + tooltip
+  in the phase-4 closed-ShadowRoot scaffold, now live) run in the **isolated
+  world**; resolution runs host-side (`ComponentInspectController`
+  latest-wins coalescer → `component.at` → `Runtime.evaluate` label push into
+  the tracked `localcoast` execution context, `Page.createIsolatedWorld`
+  fallback). Hover traffic never touches the event store.
+- Capabilities: `component.copyPath` gained `format`/`fallbackSelector`/
+  `copiedText` (path-only default unchanged); new `component.inspectMode`
+  command (palette: "Toggle component inspect mode", MCP:
+  `lc_component_inspectMode`). Components renderer panel (inspect toggle,
+  last-picked line, `component.tree` view) added last per invariant 3.
+- Verified: 6 new isolated-world Chromium tests (hover dedup by element
+  identity, pick + app-click suppression, Alt/Esc/sticky lifecycle, seq-guarded
+  label pushes), 5 protocol-types cases, and 5 new smoke checks — including a
+  full in-Electron loop: sticky mode pushed into the isolated world → synthetic
+  CDP click intercepted as a pick → binding → `copyPath` → console audit line.
+  Known limits: main-frame only (as the right-click flow); clicks are swallowed
+  while inspecting (DevTools convention).
+
 ## Verification evidence
 
 - **98 automated tests** green across the workspace (`pnpm test`): 12

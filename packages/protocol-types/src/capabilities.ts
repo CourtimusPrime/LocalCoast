@@ -549,6 +549,25 @@ export const ComponentAtOutput = z.object({
   resolvedVia: z.enum(['debugSource', 'vueFile', 'svelteMeta', 'functionLocation', 'none']),
 });
 
+export const ComponentCopyPathInput = ComponentAtInput.extend({
+  /** 'nameAndPath' copies `Name (path:line)` — the Alt-click inspect flow;
+   *  'path' keeps the original right-click/MCP behavior (`path:line`). */
+  format: z.enum(['path', 'nameAndPath']).default('path'),
+  /** Structural DOM locator copied instead when no framework component resolves. */
+  fallbackSelector: z.string().max(2048).optional(),
+});
+export const ComponentCopyPathOutput = ComponentAtOutput.extend({
+  copied: z.boolean(),
+  /** Exact clipboard text, so callers/tests can assert format without OS clipboard access. */
+  copiedText: z.string().optional(),
+});
+
+export const ComponentInspectModeInput = SessionScope.extend({
+  /** Omitted = toggle (palette dispatch passes only sessionId). */
+  enabled: z.boolean().optional(),
+});
+export const ComponentInspectModeOutput = z.object({ enabled: z.boolean() });
+
 export const ComponentTreeInput = SessionScope.extend({
   maxDepth: z.number().int().positive().max(50).default(12),
   maxNodes: z.number().int().positive().max(5000).default(800),

@@ -122,6 +122,50 @@ try {
   check('console.log captured', texts.some((t) => t.includes('smoke-app booted')), JSON.stringify(texts));
   check('console.warn captured', texts.some((t) => t.includes('smoke-warning')));
 
+  // Component inspect mode, full loop: sticky mode pushed into the isolated
+  // world, a synthetic CDP click gets intercepted as a pick, rides the binding
+  // back, and copyPath logs the copy (plain-HTML page → DOM selector fallback).
+  const inspectOn = await client.callTool({
+    name: 'lc_component_inspectMode',
+    arguments: { sessionId, enabled: true },
+  });
+  check('inspect mode enables', inspectOn.structuredContent?.enabled === true,
+    JSON.stringify(inspectOn.structuredContent));
+  await client.callTool({
+    name: 'lc_scenario_play',
+    arguments: {
+      sessionId,
+      scenario: {
+        version: 1,
+        kind: 'scenario',
+        name: 'inspect-pick',
+        steps: [{ action: 'click', selector: 'h1' }],
+      },
+    },
+  });
+  // Generous window: copyPath's project-root lookup shells out to lsof, which
+  // can take seconds on a loaded machine.
+  let pickText;
+  for (let i = 0; i < 40 && !pickText; i++) {
+    await new Promise((r) => setTimeout(r, 250));
+    const picked = await client.callTool({ name: 'lc_console_list', arguments: { sessionId } });
+    pickText = (picked.structuredContent?.entries ?? [])
+      .map((e) => e.payload.text)
+      .find((t) => t.startsWith('Copied DOM selector:') || t.startsWith('Copied component path:'));
+  }
+  check('inspect pick round-trips binding → copyPath → console',
+    (pickText ?? '').includes('h1'), pickText ?? 'no copy console entry');
+  const inspectOff = await client.callTool({ name: 'lc_component_inspectMode', arguments: { sessionId } });
+  check('inspect mode toggles off', inspectOff.structuredContent?.enabled === false,
+    JSON.stringify(inspectOff.structuredContent));
+  const copyRes = await client.callTool({
+    name: 'lc_component_copyPath',
+    arguments: { sessionId, x: 10, y: 10, format: 'nameAndPath', fallbackSelector: 'body > h1' },
+  });
+  check('copyPath falls back to DOM selector',
+    copyRes.structuredContent?.copied === true && copyRes.structuredContent?.copiedText === 'body > h1',
+    JSON.stringify(copyRes.structuredContent));
+
   // Epoch bump on reload.
   const reload = await client.callTool({ name: 'lc_targets_reload', arguments: { sessionId } });
   check('reload bumps epoch', reload.structuredContent?.epoch === 1, JSON.stringify(reload.structuredContent));
@@ -349,14 +393,21 @@ try {
     }),
   }).catch(() => ({ ok: false }));
   check('OTLP receiver accepts traces', otlpRes.ok);
-  await new Promise((r) => setTimeout(r, 300));
-  const traces = await client.callTool({
-    name: 'lc_events_query',
-    arguments: { sessionId: 'server-side', types: ['trace.span'], epoch: 'all' },
-  });
-  check('OTLP trace stored as span',
-    (traces.structuredContent?.events ?? []).some((e) => e.payload.name === 'GET /checkout' && e.payload.serviceName === 'checkout-api'),
-    JSON.stringify((traces.structuredContent?.events ?? []).map((e) => e.payload.name)));
+  // The span rides the async ingest pipeline — poll instead of a fixed sleep.
+  let spanSeen = false;
+  let lastSpans = [];
+  for (let i = 0; i < 20 && !spanSeen; i++) {
+    await new Promise((r) => setTimeout(r, 250));
+    const traces = await client.callTool({
+      name: 'lc_events_query',
+      arguments: { sessionId: 'server-side', types: ['trace.span'], epoch: 'all' },
+    });
+    lastSpans = (traces.structuredContent?.events ?? []).map((e) => e.payload.name);
+    spanSeen = (traces.structuredContent?.events ?? []).some(
+      (e) => e.payload.name === 'GET /checkout' && e.payload.serviceName === 'checkout-api',
+    );
+  }
+  check('OTLP trace stored as span', spanSeen, JSON.stringify(lastSpans));
 
   // Bug bundle with redaction (invariant 8).
   await client.callTool({

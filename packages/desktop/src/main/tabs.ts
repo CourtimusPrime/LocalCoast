@@ -1,5 +1,6 @@
 import { WebContentsView, type BrowserWindow } from 'electron';
 import type { EventStore } from '@localcoast/core';
+import type { AgentComponentMessage } from '@localcoast/protocol-types';
 import { GuestCdp } from './cdp-mux.js';
 import { NetworkCapture } from './capture/network.js';
 import { PageAgentHost } from './page-agent-host.js';
@@ -34,6 +35,8 @@ export class TabManager {
   private pendingReloadBump = new Set<string>();
   /** Set by main: guest right-click → Component Selection. */
   onGuestContextMenu: ((sessionId: string, x: number, y: number) => void) | null = null;
+  /** Set by main: page-agent component inspect traffic (hover/pick/mode). */
+  onComponentInspect: ((sessionId: string, msg: AgentComponentMessage) => void) | null = null;
   /** Lifecycle hooks for engines that track per-tab CDP consumers (mocks, …). */
   onTabOpened: ((sessionId: string, cdp: GuestCdp) => void) | null = null;
   onTabClosed: ((sessionId: string) => void) | null = null;
@@ -100,6 +103,7 @@ export class TabManager {
     await agent.start();
     await scripts.start();
     sampler.start();
+    agent.onComponentMessage = (msg) => this.onComponentInspect?.(sessionId, msg);
     this.onTabOpened?.(sessionId, cdp);
     console.log(`[tabs] :${port} attached, capture + page-agent live (${sessionId})`);
 

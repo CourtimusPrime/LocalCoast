@@ -75,6 +75,37 @@ export const AgentPerfLongTaskSchema = z.object({
   t: z.number(),
 });
 
+/** Component inspect mode: hovered element changed under the cursor. Sent only
+ *  on element-identity change (rAF-coalesced); the host resolves name/path and
+ *  pushes a label back into the isolated world keyed by `seq`. */
+export const AgentComponentHoverSchema = z.object({
+  kind: z.literal('component.hover'),
+  x: z.number().int().nonnegative(),
+  y: z.number().int().nonnegative(),
+  /** Monotonic per-page hover counter; stale resolutions are dropped by seq. */
+  seq: z.number().int().nonnegative(),
+  t: z.number(),
+});
+
+/** Component inspect mode: Alt-click pick. Carries a cheap structural locator
+ *  as the copy fallback when no framework component resolves. */
+export const AgentComponentPickSchema = z.object({
+  kind: z.literal('component.pick'),
+  x: z.number().int().nonnegative(),
+  y: z.number().int().nonnegative(),
+  seq: z.number().int().nonnegative(),
+  selectorPath: z.string().max(2048).optional(),
+  t: z.number(),
+});
+
+/** Component inspect mode: page-side sticky-mode change (Esc exit) so the
+ *  host's toggle state cannot desync from the page. */
+export const AgentComponentModeSchema = z.object({
+  kind: z.literal('component.mode'),
+  enabled: z.boolean(),
+  t: z.number(),
+});
+
 export const AgentMessageSchema = z.discriminatedUnion('kind', [
   AgentStorageOpSchema,
   AgentRouteSchema,
@@ -84,8 +115,15 @@ export const AgentMessageSchema = z.discriminatedUnion('kind', [
   AgentStateActionSchema,
   AgentStateCommitSchema,
   AgentPerfLongTaskSchema,
+  AgentComponentHoverSchema,
+  AgentComponentPickSchema,
+  AgentComponentModeSchema,
 ]);
 export type AgentMessage = z.infer<typeof AgentMessageSchema>;
+export type AgentComponentMessage = Extract<
+  AgentMessage,
+  { kind: 'component.hover' | 'component.pick' | 'component.mode' }
+>;
 
 export const AgentBatchSchema = z.object({
   v: z.literal(1),

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { BrowserWindow, app, ipcMain, session } from 'electron';
 import { ChildProcessBackend, Core, EventStore, registerBuiltins } from '@localcoast/core';
 import { McpHttpServer, localcoastHome, writeInstanceInfo } from '@localcoast/mcp';
+import { ComponentInspectController } from './component-inspect.js';
 import { DiffMode, registerDiffCapabilities } from './diff-capabilities.js';
 import { registerFrameworkCapabilities } from './framework-capabilities.js';
 import { IngestSink, OtlpReceiver } from './ingest.js';
@@ -69,11 +70,19 @@ async function boot(): Promise<void> {
 
   const tabs = new TabManager(window, store);
   const mockEngine = new MockEngine();
-  tabs.onTabOpened = (sessionId, cdp) => void mockEngine.attachTab(sessionId, cdp);
-  tabs.onTabClosed = (sessionId) => void mockEngine.detachTab(sessionId);
+  const componentInspect = new ComponentInspectController(core);
+  tabs.onTabOpened = (sessionId, cdp) => {
+    void mockEngine.attachTab(sessionId, cdp);
+    componentInspect.attachTab(sessionId, cdp);
+  };
+  tabs.onTabClosed = (sessionId) => {
+    void mockEngine.detachTab(sessionId);
+    componentInspect.detachTab(sessionId);
+  };
+  tabs.onComponentInspect = (sessionId, msg) => componentInspect.onAgentMessage(sessionId, msg);
   const diffMode = new DiffMode(core, tabs);
   registerShellCapabilities(core, tabs);
-  registerFrameworkCapabilities(core, tabs, inspector);
+  registerFrameworkCapabilities(core, tabs, inspector, componentInspect);
   registerNetworkCapabilities(core, tabs, mockEngine, inspector);
   registerSnapshotCapabilities(core, tabs);
   registerDiffCapabilities(core, tabs, diffMode);

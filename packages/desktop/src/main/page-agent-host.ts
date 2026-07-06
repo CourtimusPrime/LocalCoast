@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import type { EventStore } from '@localcoast/core';
-import { AgentBatchSchema } from '@localcoast/protocol-types';
+import { AgentBatchSchema, type AgentComponentMessage } from '@localcoast/protocol-types';
 import { getIsolatedWorldSource, getMainWorldSource } from '@localcoast/page-agent';
 import type { GuestCdp } from './cdp-mux.js';
 
@@ -20,6 +20,9 @@ export class PageAgentHost {
   private unsubscribe: (() => void) | null = null;
   private readonly mainBinding = `__lc_${randomBytes(12).toString('hex')}`;
   private readonly isolatedBinding = '__localcoast_isolated__';
+  /** Component inspect messages are ephemeral UI traffic — routed to the
+   *  controller, never appended to the store. */
+  onComponentMessage: ((msg: AgentComponentMessage) => void) | null = null;
 
   constructor(
     private readonly cdp: GuestCdp,
@@ -141,6 +144,11 @@ export class PageAgentHost {
         case 'ws':
           // CDP Network capture already records ws lifecycle; the page-side
           // registry exists for send-into-socket (phase 5) — nothing to store.
+          break;
+        case 'component.hover':
+        case 'component.pick':
+        case 'component.mode':
+          this.onComponentMessage?.(msg);
           break;
       }
     }

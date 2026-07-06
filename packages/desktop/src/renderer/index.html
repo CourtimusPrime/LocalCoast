@@ -23,6 +23,7 @@
         <button data-panel="console">Console</button>
         <button data-panel="storage">Storage</button>
         <button data-panel="perf">Perf</button>
+        <button data-panel="components">Components</button>
       </nav>
       <section id="panel-network" class="panel active">
         <div id="network-totals"></div>
@@ -42,6 +43,13 @@
         <div id="perf-samples"></div>
         <h3 class="storage-h">Build status</h3>
         <div id="perf-build"></div>
+      </section>
+      <section id="panel-components" class="panel">
+        <button id="components-inspect">Inspect: off</button>
+        <p class="hint">Hold Option over the page (or toggle) to highlight components; click copies name + path.</p>
+        <div id="components-picked"></div>
+        <h3 class="storage-h">Component tree</h3>
+        <div id="components-tree"></div>
       </section>
     </aside>
     <div id="palette" class="hidden">
