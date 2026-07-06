@@ -1,0 +1,27 @@
+{
+  "name": "@localcoast/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Electron shell: main hosts core + mcp + cdp-mux; renderer is thin-client panels; preload exposes only core:query/command/subscribe.",
+  "main": "./dist/main.mjs",
+  "scripts": {
+    "build": "node scripts/build.mjs && tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "dev": "node scripts/build.mjs && electron ."
+  },
+  "dependencies": {
+    "@localcoast/core": "workspace:*",
+    "@localcoast/mcp": "workspace:*",
+    "@localcoast/page-agent": "workspace:*",
+    "@localcoast/protocol-types": "workspace:*",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "electron": "^43.0.0",
+    "esbuild": "^0.28.0"
+  }
+}

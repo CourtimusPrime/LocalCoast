@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; img-src 'self' data:" />
+    <title>LocalCoast</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header id="chrome">
+      <div id="brand">LocalCoast</div>
+      <nav id="tabstrip"></nav>
+      <button id="reload-btn" title="Reload (new epoch)">⟳</button>
+    </header>
+    <main id="home">
+      <h1>Servers</h1>
+      <p class="hint">Local dev servers detected on this machine. Click to open with capture attached.</p>
+      <div id="server-list"></div>
+    </main>
+    <aside id="sidebar">
+      <nav id="panel-tabs">
+        <button data-panel="network" class="active">Network</button>
+        <button data-panel="console">Console</button>
+        <button data-panel="storage">Storage</button>
+        <button data-panel="perf">Perf</button>
+      </nav>
+      <section id="panel-network" class="panel active">
+        <div id="network-totals"></div>
+        <div id="network-rows"></div>
+      </section>
+      <section id="panel-console" class="panel">
+        <button id="console-copy">Copy</button>
+        <div id="console-rows"></div>
+      </section>
+      <section id="panel-storage" class="panel">
+        <div id="storage-state"></div>
+        <h3 class="storage-h">Usage trail</h3>
+        <div id="storage-trail"></div>
+      </section>
+      <section id="panel-perf" class="panel">
+        <div id="perf-tiers"></div>
+        <div id="perf-samples"></div>
+        <h3 class="storage-h">Build status</h3>
+        <div id="perf-build"></div>
+      </section>
+    </aside>
+    <div id="palette" class="hidden">
+      <div id="palette-box">
+        <input id="palette-input" type="text" placeholder="Type a command…" autocomplete="off" />
+        <div id="palette-results"></div>
+      </div>
+    </div>
+    <script src="bundle.js"></script>
+  </body>
+</html>
