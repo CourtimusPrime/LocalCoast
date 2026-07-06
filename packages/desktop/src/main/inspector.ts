@@ -1,4 +1,6 @@
 import { execFile } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
 import type { DiscoveredServer, ProcessInspector } from '@localcoast/core';
 
@@ -64,6 +66,10 @@ export class LsofInspector implements ProcessInspector {
         } catch {
           // cwd unavailable (permissions) — tier badge stays honest.
         }
+        // Human label for the server-list card: package.json name, else folder.
+        if (srv.cwd) {
+          srv.projectName = await projectNameOf(srv.cwd);
+        }
       }),
     );
 
@@ -97,4 +103,15 @@ export class LsofInspector implements ProcessInspector {
       return undefined;
     }
   }
+}
+
+/** package.json `name` at the project root, falling back to the folder name. */
+async function projectNameOf(cwd: string): Promise<string> {
+  try {
+    const pkg = JSON.parse(await readFile(join(cwd, 'package.json'), 'utf8')) as { name?: unknown };
+    if (typeof pkg.name === 'string' && pkg.name.trim()) return pkg.name.trim();
+  } catch {
+    // no package.json / unreadable / malformed — fall back to the folder name.
+  }
+  return basename(cwd);
 }

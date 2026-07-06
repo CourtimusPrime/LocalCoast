@@ -7,7 +7,10 @@ import {
   ActScreenshotOutput,
   StorageStateInput,
   StorageStateOutput,
+  TargetPreviewInput,
+  TargetPreviewOutput,
 } from '@localcoast/protocol-types';
+import type { PreviewCapturer } from './preview.js';
 import type { TabManager } from './tabs.js';
 
 /**
@@ -64,7 +67,11 @@ const A11Y_AUDIT_FN = `() => {
  * server starts, so the generated tool surface includes them automatically —
  * definition of done stays: registry entry → generated tool → palette → panel.
  */
-export function registerShellCapabilities(core: Core, tabs: TabManager): void {
+export function registerShellCapabilities(
+  core: Core,
+  tabs: TabManager,
+  preview: PreviewCapturer,
+): void {
   core.registry.registerCommand({
     name: 'targets.open',
     description:
@@ -319,5 +326,14 @@ export function registerShellCapabilities(core: Core, tabs: TabManager): void {
         height: size.height,
       };
     },
+  });
+
+  core.registry.registerQuery({
+    name: 'targets.preview',
+    description:
+      'Thumbnail screenshot of a discovered localhost server for the server-list card. Uses the live tab if one is attached, otherwise loads the page offscreen. Cached; returns { available:false, reason } when the server did not render.',
+    input: TargetPreviewInput,
+    output: TargetPreviewOutput,
+    handler: (input) => preview.capture(input.port, input.maxAgeMs),
   });
 }

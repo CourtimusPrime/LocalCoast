@@ -21,6 +21,8 @@ export interface DiscoveredServer {
   pid?: number;
   cmd?: string;
   cwd?: string;
+  /** package.json name (else project folder name) inferred from cwd. */
+  projectName?: string;
   protocol: 'http' | 'https';
 }
 

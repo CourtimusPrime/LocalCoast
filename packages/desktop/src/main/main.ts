@@ -13,6 +13,7 @@ import { LsofInspector } from './inspector.js';
 import { MockEngine } from './mocks.js';
 import { registerNetworkCapabilities } from './network-capabilities.js';
 import { registerObserveCapabilities } from './observe-capabilities.js';
+import { PreviewCapturer } from './preview.js';
 import { registerProjectCapabilities } from './project-capabilities.js';
 import { TabRecorder, registerRecordCapabilities } from './record-capabilities.js';
 import { registerShellCapabilities } from './shell-capabilities.js';
@@ -70,6 +71,7 @@ async function boot(): Promise<void> {
   });
 
   const tabs = new TabManager(window, store);
+  const preview = new PreviewCapturer(window, tabs);
   const mockEngine = new MockEngine();
   const componentInspect = new ComponentInspectController(core);
   const recorder = new TabRecorder(store);
@@ -85,7 +87,7 @@ async function boot(): Promise<void> {
   };
   tabs.onComponentInspect = (sessionId, msg) => componentInspect.onAgentMessage(sessionId, msg);
   const diffMode = new DiffMode(core, tabs);
-  registerShellCapabilities(core, tabs);
+  registerShellCapabilities(core, tabs, preview);
   registerFrameworkCapabilities(core, tabs, inspector, componentInspect);
   registerNetworkCapabilities(core, tabs, mockEngine, inspector);
   registerSnapshotCapabilities(core, tabs);
@@ -163,6 +165,7 @@ async function boot(): Promise<void> {
   app.on('window-all-closed', () => {
     void (async () => {
       otlp.stop();
+      await preview.dispose();
       await mcpServer?.stop();
       await store.close();
       app.quit();

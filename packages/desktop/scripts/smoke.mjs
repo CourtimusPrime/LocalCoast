@@ -451,6 +451,13 @@ try {
   const shot = await client.callTool({ name: 'lc_act_screenshot', arguments: { sessionId } });
   check('screenshot captured', (shot.structuredContent?.base64 ?? '').length > 1000);
 
+  // Server-list card thumbnail (attached path — the smoke server has an open tab).
+  const preview = await client.callTool({ name: 'lc_targets_preview', arguments: { port: PORT } });
+  check('server preview thumbnail captured',
+    preview.structuredContent?.available === true &&
+      (preview.structuredContent?.base64 ?? '').length > 1000,
+    JSON.stringify({ available: preview.structuredContent?.available, reason: preview.structuredContent?.reason }));
+
   // Screen recording: JPEG frame sequence + timestamped manifest.
   const recStart = await client.callTool({ name: 'lc_act_record_start', arguments: { sessionId } });
   const recordingId = recStart.structuredContent?.recordingId;

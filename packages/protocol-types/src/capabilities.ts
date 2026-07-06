@@ -715,6 +715,8 @@ export const TargetInfoSchema = z.object({
   port: z.number().int(),
   url: z.string().optional(),
   title: z.string().optional(),
+  /** Human label for the card: package.json name, else the project folder name. */
+  projectName: z.string().optional(),
   pid: z.number().int().optional(),
   projectRoot: z.string().optional(),
   frameworkHint: z.string().optional(),
@@ -726,6 +728,23 @@ export const TargetInfoSchema = z.object({
 
 export const TargetsListInput = z.object({});
 export const TargetsListOutput = z.object({ targets: z.array(TargetInfoSchema) });
+
+/** Server-list card thumbnail: a small base64 screenshot of the server's page. */
+export const TargetPreviewInput = z.object({
+  port: z.number().int().min(1).max(65535),
+  /** Recapture if the cached shot is older than this (ms); default TTL otherwise. */
+  maxAgeMs: z.number().int().min(0).max(600_000).optional(),
+});
+export const TargetPreviewOutput = z.object({
+  port: z.number().int(),
+  available: z.boolean(),
+  mimeType: z.string().optional(),
+  base64: z.string().optional(),
+  width: z.number().int().optional(),
+  height: z.number().int().optional(),
+  capturedAtWall: z.number().optional(),
+  reason: z.enum(['ok', 'load_failed', 'timeout', 'capturing', 'unsupported']).optional(),
+});
 
 export const SessionInfoSchema = z.object({
   sessionId: z.string(),
