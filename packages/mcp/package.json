@@ -1,0 +1,28 @@
+{
+  "name": "@localcoast/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Streamable-HTTP MCP server; tools are code-generated from the capability registry.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "test:parity": "vitest run test/parity.test.ts"
+  },
+  "dependencies": {
+    "@localcoast/core": "workspace:*",
+    "@localcoast/protocol-types": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.0.0"
+  }
+}
