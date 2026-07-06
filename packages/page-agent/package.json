@@ -1,0 +1,30 @@
+{
+  "name": "@localcoast/page-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Injected two-world IIFE for guest pages. Communicates with the host over CDP Runtime bindings only.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run test/build.test.ts",
+    "test:chromium": "vitest run test/chromium.test.ts test/adapters.test.ts"
+  },
+  "devDependencies": {
+    "@localcoast/protocol-types": "workspace:*",
+    "esbuild": "^0.28.0",
+    "playwright-core": "^1.50.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^4.0.0"
+  }
+}
