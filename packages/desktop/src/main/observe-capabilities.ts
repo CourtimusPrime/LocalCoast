@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import {
   CapabilityFault,
   evaluateAssertion,
@@ -39,7 +39,7 @@ interface CdpAxNode {
 export function registerObserveCapabilities(
   core: Core,
   tabs: TabManager,
-  projectRoot: () => string | undefined,
+  projectRoot: (sessionId: string) => Promise<string | undefined>,
 ): void {
   const requireTab = (sessionId: string) => {
     const tab = tabs.get(sessionId);
@@ -168,11 +168,16 @@ export function registerObserveCapabilities(
     handler: async (input) => {
       let assertions = input.assertions ?? [];
       if (input.suiteName) {
-        const root = projectRoot();
+        const root = await projectRoot(input.sessionId);
         if (!root) throw new CapabilityFault('tier_unavailable', 'no project root for suite loading');
+        // Defense-in-depth over the SafeName schema: never let a name escape the dir.
+        const suiteFile = `${input.suiteName}.json`;
+        if (basename(suiteFile) !== suiteFile) {
+          throw new CapabilityFault('invalid_input', `unsafe suite name: ${input.suiteName}`);
+        }
         try {
           const raw = await readFile(
-            join(root, '.localcoast', 'assertions', `${input.suiteName}.json`),
+            join(root, '.localcoast', 'assertions', suiteFile),
             'utf8',
           );
           assertions = AssertionSuiteSchema.parse(JSON.parse(raw)).assertions;

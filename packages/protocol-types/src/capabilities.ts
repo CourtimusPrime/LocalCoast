@@ -23,6 +23,17 @@ import { AssertionResultSchema, AssertionSchema } from './assertions.js';
 /** Most queries scope to one attached session (a guest tab). */
 export const SessionScope = z.object({ sessionId: z.string() });
 
+/**
+ * Name of a committable `.localcoast/` artifact that becomes a filename. Bounded
+ * charset with no path separators or `..`, so it can never escape its directory.
+ */
+export const SafeName = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9._-]+$/, 'must be alphanumeric with . _ - only (no path separators)')
+  .refine((s) => s !== '.' && s !== '..', 'must not be . or ..');
+
 /** Epoch filter default is 'current': persists across SPA navigation, resets on refresh — as a view filter, never a deletion. */
 export const EpochFilterSchema = z
   .union([z.literal('current'), z.literal('all'), z.number().int().nonnegative()])
@@ -550,7 +561,7 @@ export const SnapshotListOutput = z.object({
   ),
 });
 
-export const FixtureLoadInput = z.object({ name: z.string(), sessionId: z.string() });
+export const FixtureLoadInput = z.object({ name: SafeName, sessionId: z.string() });
 export const FixtureLoadOutput = z.object({
   applied: z.object({
     mocks: z.number().int(),
@@ -579,7 +590,7 @@ export const ComponentAtOutput = z.object({
   /** Repo-relative when resolvable; raw source URL otherwise. */
   sourcePath: z.string().optional(),
   line: z.number().int().optional(),
-  resolvedVia: z.enum(['debugSource', 'vueFile', 'svelteMeta', 'functionLocation', 'none']),
+  resolvedVia: z.enum(['debugSource', 'vueFile', 'svelteMeta', 'sourceMap', 'functionLocation', 'none']),
 });
 
 export const ComponentCopyPathInput = ComponentAtInput.extend({
@@ -638,7 +649,7 @@ export const StateJumpOutput = z.object({ ok: z.boolean() });
 export const AssertRunInput = SessionScope.extend({
   assertions: z.array(AssertionSchema).optional(),
   /** Load a committed suite from .localcoast/assertions/<name>.json instead. */
-  suiteName: z.string().optional(),
+  suiteName: SafeName.optional(),
 });
 export const AssertRunOutput = z.object({
   pass: z.boolean(),
@@ -720,6 +731,16 @@ export const TargetInfoSchema = z.object({
   pid: z.number().int().optional(),
   projectRoot: z.string().optional(),
   frameworkHint: z.string().optional(),
+  /** Stable framework id for the card icon: 'react','vue','next','express','python'… */
+  frameworkId: z.string().optional(),
+  /** Type badge, inferred from the project's package.json dependencies. */
+  serverType: z.enum(['frontend', 'backend', 'fullstack']).optional(),
+  /** Process %CPU (drives the "intensive" sorts). */
+  cpuPercent: z.number().optional(),
+  /** Process resident set size, bytes. */
+  memBytes: z.number().int().optional(),
+  /** Process start time, epoch ms (drives the runtime sorts). */
+  startedAtWall: z.number().optional(),
   attached: z.boolean(),
   sessionId: z.string().optional(),
   /** Advisory lease: agent holding exclusive interaction during a scenario. */
@@ -728,6 +749,19 @@ export const TargetInfoSchema = z.object({
 
 export const TargetsListInput = z.object({});
 export const TargetsListOutput = z.object({ targets: z.array(TargetInfoSchema) });
+
+/** Open a discovered server's URL in the OS default browser. */
+export const TargetOpenExternalInput = z.object({
+  port: z.number().int().min(1).max(65535),
+});
+export const TargetOpenExternalOutput = z.object({ opened: z.boolean() });
+
+/** Terminate the process holding a discovered server's port (SIGTERM). Destructive. */
+export const TargetKillInput = z.object({ port: z.number().int().min(1).max(65535) });
+export const TargetKillOutput = z.object({
+  killed: z.boolean(),
+  pid: z.number().int().optional(),
+});
 
 /** Server-list card thumbnail: a small base64 screenshot of the server's page. */
 export const TargetPreviewInput = z.object({
@@ -744,6 +778,8 @@ export const TargetPreviewOutput = z.object({
   height: z.number().int().optional(),
   capturedAtWall: z.number().optional(),
   reason: z.enum(['ok', 'load_failed', 'timeout', 'capturing', 'unsupported']).optional(),
+  /** 'json' → the root URL served JSON; card shows a "{/}" placeholder, no screenshot. */
+  contentKind: z.enum(['page', 'json', 'unknown']).optional(),
 });
 
 export const SessionInfoSchema = z.object({
@@ -784,8 +820,6 @@ export const ExportBundleInput = z.object({
     .object({
       consoleSeconds: z.number().int().positive().default(60),
       networkCount: z.number().int().positive().default(30),
-      includeScreenshot: z.boolean().default(true),
-      includeStorage: z.boolean().default(true),
     })
     .prefault({}),
 });

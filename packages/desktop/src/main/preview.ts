@@ -7,11 +7,13 @@ import { GUEST_PARTITION, type TabManager } from './tabs.js';
 type PreviewResult = z.infer<typeof TargetPreviewOutput>;
 
 interface CacheEntry {
-  base64: string;
-  mimeType: string;
-  width: number;
-  height: number;
+  /** Absent for JSON endpoints (contentKind 'json') — no screenshot is taken. */
+  base64?: string;
+  mimeType?: string;
+  width?: number;
+  height?: number;
   capturedAtWall: number;
+  contentKind: 'page' | 'json';
 }
 
 /** Rendered viewport for offscreen captures (decoupled from the 1×1 native view). */
@@ -127,6 +129,14 @@ export class PreviewCapturer {
         }),
       ]);
       await delay(SETTLE_MS);
+      // A JSON endpoint renders as text; the card wants a "{/}" placeholder, not
+      // a screenshot of raw JSON. Chrome reports the served type via contentType.
+      const contentType = await view.webContents
+        .executeJavaScript('document.contentType')
+        .catch(() => '');
+      if (typeof contentType === 'string' && contentType.includes('json')) {
+        return this.storeJson(port);
+      }
       const shot = await this.screenshot(cdp, VIEW_W, VIEW_H);
       return this.store(port, shot, Math.round(VIEW_W * SCALE), Math.round(VIEW_H * SCALE));
     } catch (err) {
@@ -190,7 +200,15 @@ export class PreviewCapturer {
       width,
       height,
       capturedAtWall: Date.now(),
+      contentKind: 'page',
     };
+    this.cache.set(port, entry);
+    return this.ok(port, entry);
+  }
+
+  /** Cache + return a JSON-endpoint result: available, but no screenshot. */
+  private storeJson(port: number): PreviewResult {
+    const entry: CacheEntry = { capturedAtWall: Date.now(), contentKind: 'json' };
     this.cache.set(port, entry);
     return this.ok(port, entry);
   }
@@ -205,6 +223,7 @@ export class PreviewCapturer {
       width: entry.width,
       height: entry.height,
       capturedAtWall: entry.capturedAtWall,
+      contentKind: entry.contentKind,
     };
   }
 

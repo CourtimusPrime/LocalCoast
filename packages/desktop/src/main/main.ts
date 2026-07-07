@@ -92,7 +92,15 @@ async function boot(): Promise<void> {
   registerNetworkCapabilities(core, tabs, mockEngine, inspector);
   registerSnapshotCapabilities(core, tabs);
   registerDiffCapabilities(core, tabs, diffMode);
-  registerObserveCapabilities(core, tabs, () => undefined);
+  // Project root from the target's pid cwd — same derivation the project/
+  // framework capabilities use, so committed assertion suites are loadable.
+  const projectRootOf = async (sessionId: string): Promise<string | undefined> => {
+    const tab = tabs.get(sessionId);
+    if (!tab) return undefined;
+    const servers = await inspector.listListeningServers();
+    return servers.find((s) => s.port === tab.port)?.cwd;
+  };
+  registerObserveCapabilities(core, tabs, projectRootOf);
   registerProjectCapabilities(core, tabs, mockEngine, inspector);
   registerRecordCapabilities(core, tabs, recorder);
   tabs.onGuestContextMenu = (sessionId, x, y) => {
@@ -104,18 +112,25 @@ async function boot(): Promise<void> {
     (evt) => {
       if (evt.type !== 'hmr.update') return;
       for (const baselineId of diffMode.baselinesFor(evt.sessionId)) {
-        void diffMode.end(baselineId).then((delta) => {
-          store.appendNow({
-            sessionId: evt.sessionId,
-            actor: 'system',
-            type: 'console.entry',
-            payload: {
-              level: 'info',
-              source: 'localcoast',
-              text: `Diff Mode auto-ended on HMR: ${delta.domChanged ? delta.domDelta.join(', ') : 'no DOM change'}; +${delta.networkDelta.added.length}/-${delta.networkDelta.removed.length} requests`,
-            },
+        void diffMode
+          .end(baselineId)
+          .then((delta) => {
+            store.appendNow({
+              sessionId: evt.sessionId,
+              actor: 'system',
+              type: 'console.entry',
+              payload: {
+                level: 'info',
+                source: 'localcoast',
+                text: `Diff Mode auto-ended on HMR: ${delta.domChanged ? delta.domDelta.join(', ') : 'no DOM change'}; +${delta.networkDelta.added.length}/-${delta.networkDelta.removed.length} requests`,
+              },
+            });
+          })
+          .catch((err: unknown) => {
+            // The tab may have torn down as HMR fired; the baseline is already
+            // consumed. Don't leak an unhandled rejection.
+            console.error('diff auto-end on HMR failed:', err);
           });
-        });
       }
     },
     { types: ['hmr.update'] },

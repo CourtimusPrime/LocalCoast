@@ -14,32 +14,43 @@ import { AnyEventSchema, type AnyEvent } from '@localcoast/protocol-types';
 const SERVER_SESSION = 'server-side';
 
 export class IngestSink {
-  private ready = false;
+  /** Memoized so concurrent first ingests share ONE startSession, never race a double-start. */
+  private sessionReady: Promise<void> | null = null;
 
   constructor(private readonly store: EventStore) {}
 
-  async ensureSession(): Promise<void> {
-    if (this.ready) return;
-    await this.store.startSession({ sessionId: SERVER_SESSION, targetKey: 'server-side' });
-    this.ready = true;
+  ensureSession(): Promise<void> {
+    this.sessionReady ??= this.store
+      .startSession({ sessionId: SERVER_SESSION, targetKey: 'server-side' })
+      .then(() => undefined)
+      .catch((err: unknown) => {
+        // Reset so a transient failure can be retried by the next ingest.
+        this.sessionReady = null;
+        throw err;
+      });
+    return this.sessionReady;
   }
 
   /** Accept a batch of partially-shaped events, stamp + validate, store. */
   ingest(events: unknown[]): void {
-    void this.ensureSession().then(() => {
-      for (const raw of events) {
-        if (raw === null || typeof raw !== 'object') continue;
-        const candidate = {
-          sessionId: SERVER_SESSION,
-          epoch: this.store.currentEpoch(SERVER_SESSION),
-          tsWall: Date.now(),
-          tsMono: performance.now(),
-          ...(raw as Record<string, unknown>),
-        };
-        const parsed = AnyEventSchema.safeParse(candidate);
-        if (parsed.success) this.store.append(parsed.data as AnyEvent);
-      }
-    });
+    this.ensureSession()
+      .then(() => {
+        for (const raw of events) {
+          if (raw === null || typeof raw !== 'object') continue;
+          const candidate = {
+            sessionId: SERVER_SESSION,
+            epoch: this.store.currentEpoch(SERVER_SESSION),
+            tsWall: Date.now(),
+            tsMono: performance.now(),
+            ...(raw as Record<string, unknown>),
+          };
+          const parsed = AnyEventSchema.safeParse(candidate);
+          if (parsed.success) this.store.append(parsed.data as AnyEvent);
+        }
+      })
+      .catch((err: unknown) => {
+        console.error('ingest: failed to store batch:', err);
+      });
   }
 }
 

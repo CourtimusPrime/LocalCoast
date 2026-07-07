@@ -26,7 +26,11 @@ export function instancePath(): string {
 
 export async function writeInstanceInfo(info: InstanceInfo): Promise<void> {
   await mkdir(localcoastHome(), { recursive: true });
-  await writeFile(instancePath(), JSON.stringify(InstanceInfoSchema.parse(info), null, 2));
+  // 0600: the file holds the MCP bearer token — keep it owner-only so other
+  // local users can't drive the full MCP surface (dump JWTs, kill processes).
+  await writeFile(instancePath(), JSON.stringify(InstanceInfoSchema.parse(info), null, 2), {
+    mode: 0o600,
+  });
 }
 
 function pidAlive(pid: number): boolean {
@@ -66,7 +70,10 @@ export async function writeProjectMcpConfig(
     await writeFile(gitignorePath, PROJECT_GITIGNORE);
   }
   const path = join(dir, 'mcp.json');
-  await writeFile(path, JSON.stringify(ProjectMcpConfigSchema.parse(config), null, 2));
+  // 0600: carries a per-run token (gitignored above; also keep it owner-only).
+  await writeFile(path, JSON.stringify(ProjectMcpConfigSchema.parse(config), null, 2), {
+    mode: 0o600,
+  });
   return path;
 }
 

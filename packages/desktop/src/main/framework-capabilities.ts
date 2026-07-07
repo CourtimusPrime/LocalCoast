@@ -101,7 +101,7 @@ export function registerFrameworkCapabilities(
         })) as {
           internalProperties?: Array<{
             name: string;
-            value?: { value?: { scriptId?: string; lineNumber?: number } };
+            value?: { value?: { scriptId?: string; lineNumber?: number; columnNumber?: number } };
           }>;
         };
         const loc = props.internalProperties?.find((p) => p.name === '[[FunctionLocation]]')
@@ -109,6 +109,23 @@ export function registerFrameworkCapabilities(
         if (loc?.scriptId) {
           const url = tab.scripts.urlOf(loc.scriptId);
           if (url) {
+            // Prefer the source map: bundled apps (Next/Turbopack/webpack,
+            // React 19) otherwise resolve to a compiled `_next/chunks` path.
+            const original =
+              loc.lineNumber !== undefined
+                ? await tab.scripts.resolveOriginal(loc.scriptId, loc.lineNumber, loc.columnNumber ?? 0)
+                : undefined;
+            if (original) {
+              return {
+                framework: probe.framework,
+                componentName: probe.componentName,
+                sourcePath: relativizeSourcePath(original.source, projectRoot),
+                line: original.line,
+                resolvedVia: 'sourceMap' as const,
+              };
+            }
+            // No source map — keep the compiled URL, but mark it so callers
+            // know it's unmapped rather than presenting a chunk as source.
             return {
               framework: probe.framework,
               componentName: probe.componentName,

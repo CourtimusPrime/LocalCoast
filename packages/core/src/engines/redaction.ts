@@ -22,6 +22,9 @@ const JWT_PATTERN = /eyJ[\w-]+\.[\w-]+\.[\w-]+/g;
 const BEARER_PATTERN = /(bearer\s+)[\w.\-~+/]+=*/gi;
 // High-entropy-ish long alnum runs (AWS keys, hex secrets) — masked in string values.
 const LONG_SECRET_PATTERN = /\b[A-Za-z0-9_\-]{32,}\b/g;
+// Stateless twin for guard `.test()`: a /g regex advances lastIndex on .test(),
+// which would corrupt subsequent redactValue calls and let real secrets slip.
+const LONG_SECRET_TEST = new RegExp(LONG_SECRET_PATTERN.source);
 
 export interface RedactionResult<T> {
   value: T;
@@ -54,7 +57,7 @@ export function redactValue(input: unknown, keyHint = ''): RedactionResult<unkno
     let value = scrubbed.value;
     count += scrubbed.count;
     // Standalone long-secret values (not sentences) get masked wholesale.
-    if (LONG_SECRET_PATTERN.test(input) && !input.includes(' ')) {
+    if (LONG_SECRET_TEST.test(input) && !input.includes(' ')) {
       value = input.replace(LONG_SECRET_PATTERN, () => {
         count++;
         return '«redacted»';

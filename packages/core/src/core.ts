@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { redactValue } from './engines/redaction.js';
 import type { EventStore } from './events/store.js';
 import {
   CapabilityFault,
@@ -103,8 +104,10 @@ export class Core {
         actor: ctx.actor,
         type: 'action.dispatched',
         payload: {
+          // Redact before persisting: command inputs carry tokens, cookie
+          // values, and mock bodies, and this event is queryable over MCP.
+          argsPreview: JSON.stringify(redactValue(input).value).slice(0, 512),
           capability,
-          argsPreview: JSON.stringify(input).slice(0, 512),
           ok,
           error,
           durationMs,

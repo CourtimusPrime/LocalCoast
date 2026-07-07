@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { AssertionSchema } from './assertions.js';
-import { CookieRecordSchema, MockPatternSchema, MockResponseSchema } from './capabilities.js';
+import { CookieRecordSchema, MockPatternSchema, MockResponseSchema, SafeName } from './capabilities.js';
 
 /**
  * Committable `.localcoast/` artifact formats (AD-10). These files live in the
@@ -17,7 +17,7 @@ export const ARTIFACT_VERSION = 1;
 export const PortProfileSchema = z.object({
   version: z.literal(ARTIFACT_VERSION),
   kind: z.literal('portProfile'),
-  name: z.string(),
+  name: SafeName,
   ports: z.array(
     z.object({
       port: z.number().int(),
@@ -44,7 +44,7 @@ export type PortProfile = z.infer<typeof PortProfileSchema>;
 export const FixtureSchema = z.object({
   version: z.literal(ARTIFACT_VERSION),
   kind: z.literal('fixture'),
-  name: z.string(),
+  name: SafeName,
   description: z.string().optional(),
   mocks: z
     .array(z.object({ pattern: MockPatternSchema, response: MockResponseSchema }))
@@ -71,7 +71,7 @@ export type Fixture = z.infer<typeof FixtureSchema>;
 export const AssertionSuiteSchema = z.object({
   version: z.literal(ARTIFACT_VERSION),
   kind: z.literal('assertionSuite'),
-  name: z.string(),
+  name: SafeName,
   description: z.string().optional(),
   assertions: z.array(AssertionSchema).min(1),
 });
@@ -103,7 +103,7 @@ export type ScenarioStep = z.infer<typeof ScenarioStepSchema>;
 export const ScenarioSchema = z.object({
   version: z.literal(ARTIFACT_VERSION),
   kind: z.literal('scenario'),
-  name: z.string(),
+  name: SafeName,
   description: z.string().optional(),
   steps: z.array(ScenarioStepSchema).min(1),
 });

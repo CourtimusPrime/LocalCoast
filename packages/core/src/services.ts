@@ -24,6 +24,18 @@ export interface DiscoveredServer {
   /** package.json name (else project folder name) inferred from cwd. */
   projectName?: string;
   protocol: 'http' | 'https';
+  /** Process %CPU (from ps). */
+  cpuPercent?: number;
+  /** Process resident set size, bytes (from ps rss). */
+  memBytes?: number;
+  /** Process start time, epoch ms (from ps lstart). */
+  startedAtWall?: number;
+  /** Type badge, inferred from package.json deps. */
+  serverType?: 'frontend' | 'backend' | 'fullstack';
+  /** Stable framework id for the card icon. */
+  frameworkId?: string;
+  /** Human framework label. */
+  frameworkHint?: string;
 }
 
 /** Port/process discovery (infra #11). Real impl (lsof/ps) lands with the shell. */

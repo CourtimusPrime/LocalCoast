@@ -31,6 +31,18 @@ describe('redaction pass (invariant 8)', () => {
     expect(value.password).toBe('«redacted»');
     expect(value.count).toBe(5);
   });
+
+  it('does not let the stateful long-secret regex leak a secret after a spaced value', () => {
+    // Regression: LONG_SECRET_PATTERN is /g; a .test() that advanced lastIndex
+    // used to make the NEXT standalone secret slip through unmasked.
+    const secret = 'AKIAIOSFODNN7EXAMPLEKEY1234567890';
+    const { value } = redactValue({
+      spaced: `contains a long ${secret} inside a sentence`,
+      standalone: secret,
+    }) as { value: Record<string, string> };
+    // The standalone value must be masked regardless of what preceded it.
+    expect(value.standalone).toBe('«redacted»');
+  });
 });
 
 describe('structured log parsing', () => {

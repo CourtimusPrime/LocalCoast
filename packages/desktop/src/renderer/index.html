@@ -9,20 +9,26 @@
   <body>
     <header id="chrome">
       <div id="brand">LocalCoast</div>
+      <button id="back-btn" aria-label="Back to servers">← Back</button>
+      <div id="gallery-toolbar">
+        <input id="gallery-search" type="search" placeholder="Search services…" autocomplete="off" aria-label="Search servers by name" />
+        <div id="filter-framework" class="dropdown"></div>
+        <div id="filter-type" class="dropdown"></div>
+        <div id="sort-by" class="dropdown"></div>
+      </div>
       <nav id="tabstrip"></nav>
-      <button id="reload-btn" title="Reload (new epoch)">⟳</button>
-      <button id="record-btn" title="Record screen">⏺</button>
-      <button id="sidebar-btn" title="Toggle sidebar">◫</button>
+      <button id="reload-btn" title="Reload (new epoch)" aria-label="Reload tab (new epoch)">⟳</button>
+      <button id="record-btn" title="Record screen" aria-label="Record screen">⏺</button>
+      <button id="sidebar-btn" title="Toggle sidebar" aria-label="Toggle sidebar">◫</button>
     </header>
     <main id="home">
-      <h1>Servers</h1>
-      <p class="hint">Local dev servers detected on this machine. Click to open with capture attached.</p>
       <div id="server-list"></div>
     </main>
     <aside id="sidebar">
       <nav id="panel-tabs">
         <button data-panel="network" class="active">Network</button>
         <button data-panel="console">Console</button>
+        <button data-panel="errors">Errors</button>
         <button data-panel="storage">Storage</button>
         <button data-panel="perf">Perf</button>
         <button data-panel="components">Components</button>
@@ -36,8 +42,19 @@
         <div id="network-rows"></div>
       </section>
       <section id="panel-console" class="panel">
-        <button id="console-copy">Copy</button>
+        <div id="console-toolbar">
+          <button id="console-copy">Copy</button>
+          <button class="console-level active" data-level="log">log</button>
+          <button class="console-level active" data-level="info">info</button>
+          <button class="console-level active" data-level="warn">warn</button>
+          <button class="console-level active" data-level="error">error</button>
+          <input id="console-search" type="text" placeholder="filter…" autocomplete="off" />
+        </div>
         <div id="console-rows"></div>
+      </section>
+      <section id="panel-errors" class="panel">
+        <div id="errors-summary"></div>
+        <div id="errors-rows"></div>
       </section>
       <section id="panel-storage" class="panel">
         <div id="storage-state"></div>
@@ -58,6 +75,15 @@
         <div id="components-tree"></div>
       </section>
     </aside>
+    <div id="net-drawer" class="hidden">
+      <div id="net-drawer-panel">
+        <div id="net-drawer-head">
+          <span id="net-drawer-title"></span>
+          <button id="net-drawer-close" aria-label="Close detail">×</button>
+        </div>
+        <div id="net-drawer-body"></div>
+      </div>
+    </div>
     <div id="palette" class="hidden">
       <div id="palette-box">
         <input id="palette-input" type="text" placeholder="Type a command…" autocomplete="off" />

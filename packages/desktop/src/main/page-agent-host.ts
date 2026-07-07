@@ -30,7 +30,28 @@ export class PageAgentHost {
     private readonly sessionId: string,
   ) {}
 
+  private unsubscribeReattach: (() => void) | null = null;
+
   async start(): Promise<void> {
+    await this.installBindings();
+
+    this.unsubscribe = this.cdp.onEvent(({ method, params }) => {
+      if (method !== 'Runtime.bindingCalled') return;
+      const name = params.name as string;
+      if (name !== this.mainBinding && name !== this.isolatedBinding) return;
+      this.ingest(params.payload as string);
+    });
+
+    // Bindings + injected scripts are per-session CDP state that a crash
+    // re-attach wipes; re-install them so the trail survives renderer crashes.
+    this.unsubscribeReattach = this.cdp.onReattach(() => {
+      void this.installBindings().catch((err) =>
+        console.error('page-agent: re-install after re-attach failed:', err),
+      );
+    });
+  }
+
+  private async installBindings(): Promise<void> {
     await this.cdp.send(null, 'Runtime.addBinding', { name: this.mainBinding });
     await this.cdp.send(null, 'Runtime.addBinding', {
       name: this.isolatedBinding,
@@ -45,18 +66,13 @@ export class PageAgentHost {
       worldName: ISOLATED_WORLD_NAME,
       runImmediately: true,
     });
-
-    this.unsubscribe = this.cdp.onEvent(({ method, params }) => {
-      if (method !== 'Runtime.bindingCalled') return;
-      const name = params.name as string;
-      if (name !== this.mainBinding && name !== this.isolatedBinding) return;
-      this.ingest(params.payload as string);
-    });
   }
 
   stop(): void {
     this.unsubscribe?.();
     this.unsubscribe = null;
+    this.unsubscribeReattach?.();
+    this.unsubscribeReattach = null;
   }
 
   private ingest(payload: string): void {

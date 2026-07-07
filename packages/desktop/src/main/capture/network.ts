@@ -31,6 +31,9 @@ const MAX_BODY_BYTES = 4 * 1024 * 1024;
 export class NetworkCapture {
   private unsubscribe: (() => void) | null = null;
   private requestUrls = new Map<string, string>();
+  /** Per-request gate: response/finished/failed await the request's append so
+   *  it never gets a lower store id than its own request on fast localhost. */
+  private requestAppended = new Map<string, { promise: Promise<void>; resolve: () => void }>();
   /** requestId → true for WS connections that look like HMR sockets. */
   private hmrSockets = new Map<string, number>();
 
@@ -72,6 +75,20 @@ export class NetworkCapture {
     };
   }
 
+  /** Gate a request's followups behind its own append. Idempotent: either the
+   *  request handler or an early followup creates it; the request handler
+   *  resolves it. Returns immediately once resolved. */
+  private gate(requestId: string): { promise: Promise<void>; resolve: () => void } {
+    let g = this.requestAppended.get(requestId);
+    if (!g) {
+      let resolve!: () => void;
+      const promise = new Promise<void>((r) => (resolve = r));
+      g = { promise, resolve };
+      this.requestAppended.set(requestId, g);
+    }
+    return g;
+  }
+
   private async handle(
     cdpSessionId: string | null,
     method: string,
@@ -88,6 +105,7 @@ export class NetworkCapture {
         if (req.url.startsWith('devtools://')) return;
         const requestId = params.requestId as string;
         this.requestUrls.set(requestId, req.url);
+        const gate = this.gate(requestId);
         const initiator = params.initiator as
           | { type: string; stack?: { callFrames: Array<Record<string, unknown>> } }
           | undefined;
@@ -110,7 +128,7 @@ export class NetworkCapture {
         let graphqlOperation: string | undefined;
         let graphqlKind: 'query' | 'mutation' | 'subscription' | undefined;
         if (postData) {
-          requestBlobId = await this.store.putBlob(Buffer.from(postData, 'utf8'));
+          requestBlobId = await this.store.putBlob(Buffer.from(postData, 'utf8')).catch(() => undefined);
           try {
             const parsed = JSON.parse(postData) as { operationName?: string; query?: string };
             if (typeof parsed.query === 'string') {
@@ -157,10 +175,15 @@ export class NetworkCapture {
               : undefined,
           },
         });
+        // Unblock this request's response/finished/failed followups.
+        gate.resolve();
         break;
       }
 
       case 'Network.responseReceived': {
+        const requestId = params.requestId as string;
+        if (!this.requestUrls.has(requestId)) break;
+        await this.gate(requestId).promise; // never precede our own request event
         const res = params.response as {
           url: string;
           status: number;
@@ -176,7 +199,7 @@ export class NetworkCapture {
         this.store.appendNow({
           ...this.base(cdpSessionId),
           type: 'network.response',
-          requestId: params.requestId as string,
+          requestId,
           payload: {
             url: res.url,
             status: res.status,
@@ -202,6 +225,7 @@ export class NetworkCapture {
       case 'Network.loadingFinished': {
         const requestId = params.requestId as string;
         if (!this.requestUrls.has(requestId)) return;
+        await this.gate(requestId).promise;
         // Bodies evict from Chromium buffers — persist immediately (AD-2).
         let blobId: string | undefined;
         let truncated = false;
@@ -231,12 +255,14 @@ export class NetworkCapture {
           },
         });
         this.requestUrls.delete(requestId);
+        this.requestAppended.delete(requestId);
         break;
       }
 
       case 'Network.loadingFailed': {
         const requestId = params.requestId as string;
         if (!this.requestUrls.has(requestId)) return;
+        await this.gate(requestId).promise;
         this.store.appendNow({
           ...this.base(cdpSessionId),
           type: 'network.failed',
@@ -247,6 +273,7 @@ export class NetworkCapture {
           },
         });
         this.requestUrls.delete(requestId);
+        this.requestAppended.delete(requestId);
         break;
       }
 
@@ -290,6 +317,7 @@ export class NetworkCapture {
                 type: 'build.error',
                 payload: {
                   message: signal.message ?? 'build error',
+                  port: this.port,
                   file: signal.errorFile,
                   line: signal.errorLine,
                   severity: 'error',

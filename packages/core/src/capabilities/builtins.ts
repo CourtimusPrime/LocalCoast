@@ -569,6 +569,12 @@ export function registerBuiltins(core: Core, deps: BuiltinDeps): void {
             projectName: srv.projectName,
             projectRoot: srv.cwd,
             pid: srv.pid,
+            serverType: srv.serverType,
+            frameworkId: srv.frameworkId,
+            frameworkHint: srv.frameworkHint,
+            cpuPercent: srv.cpuPercent,
+            memBytes: srv.memBytes,
+            startedAtWall: srv.startedAtWall,
             attached: sessionId !== undefined,
             sessionId,
           };
@@ -657,7 +663,9 @@ export function registerBuiltins(core: Core, deps: BuiltinDeps): void {
           if (evt.payload.state !== 'error') existing.errors = [];
           byPort.set(port, existing);
         } else if (evt.type === 'build.error') {
-          const port = input.port ?? 0;
+          // Prefer the error's own port; fall back to the filter, then 0.
+          const port = evt.payload.port ?? input.port ?? 0;
+          if (input.port !== undefined && port !== input.port) continue;
           const existing = byPort.get(port) ?? { state: 'error' as const, errors: [] };
           existing.errors.push(evt.payload);
           byPort.set(port, existing);
@@ -740,11 +748,16 @@ export function registerBuiltins(core: Core, deps: BuiltinDeps): void {
     surfaces: { palette: true },
     paletteTitle: 'Export bug report bundle',
     handler: async (input) => {
-      const nowMono = 0; // recent() uses clock internally
-      void nowMono;
-      const consoleEvents = store
-        .recent(input.sessionId, input.spec.consoleSeconds * 1000)
-        .filter((e) => e.type === 'console.entry' || e.type.startsWith('error.'));
+      // Read console/errors from the DURABLE store (not the 90s hot ring), so a
+      // long consoleSeconds window — and a post-restart bundle — isn't silently
+      // truncated to what happens to be in memory.
+      const recentEvents = await store.query({ sessionId: input.sessionId, limit: 4000 });
+      const latestTsMono = recentEvents.at(-1)?.tsMono ?? 0;
+      const cutoffTsMono = latestTsMono - input.spec.consoleSeconds * 1000;
+      const consoleEvents = recentEvents.filter(
+        (e) =>
+          (e.type === 'console.entry' || e.type.startsWith('error.')) && e.tsMono >= cutoffTsMono,
+      );
       const network = (
         await store.query({
           sessionId: input.sessionId,
@@ -755,11 +768,26 @@ export function registerBuiltins(core: Core, deps: BuiltinDeps): void {
       const sessions = await store.listSessions(true);
       const session = sessions.find((s) => s.sessionId === input.sessionId);
 
+      // Real page URL: the latest navigation event (was mistakenly a sessionId).
+      const navEvents = await store.query({
+        sessionId: input.sessionId,
+        types: ['session.navigated', 'session.attached', 'state.route'],
+        limit: 1,
+      });
+      const navEvt = navEvents[0];
+      const url = navEvt
+        ? navEvt.type === 'state.route'
+          ? navEvt.payload.to
+          : navEvt.type === 'session.navigated' || navEvt.type === 'session.attached'
+            ? navEvt.payload.url
+            : undefined
+        : undefined;
+
       const rawBundle = {
         capturedAtWall: Date.now(),
         session: {
           sessionId: input.sessionId,
-          url: consoleEvents.at(-1)?.sessionId,
+          url,
           meta: session?.meta ?? {},
           epoch: session?.currentEpoch ?? 0,
         },

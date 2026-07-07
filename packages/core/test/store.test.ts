@@ -1,6 +1,33 @@
 import { describe, expect, it } from 'vitest';
-import { ChildProcessBackend, EventStore, WorkerBackend } from '../src/events/store.js';
+import {
+  ChildProcessBackend,
+  EventStore,
+  InProcessBackend,
+  type StoreBackend,
+  WorkerBackend,
+} from '../src/events/store.js';
 import { consoleEvent, FakeClock, makeStore, tempDbPath } from './helpers.js';
+
+/** Wraps a real backend but rejects the first `appendBatch` to test recovery. */
+class FlakyBackend implements StoreBackend {
+  private failuresLeft: number;
+  constructor(
+    private readonly inner: StoreBackend,
+    failOnce = true,
+  ) {
+    this.failuresLeft = failOnce ? 1 : 0;
+  }
+  async call<T = unknown>(method: string, ...args: unknown[]): Promise<T> {
+    if (method === 'appendBatch' && this.failuresLeft > 0) {
+      this.failuresLeft--;
+      throw new Error('simulated backend write failure');
+    }
+    return this.inner.call<T>(method, ...args);
+  }
+  close(): Promise<void> {
+    return this.inner.close();
+  }
+}
 
 describe('EventStore', () => {
   it('assigns monotonic ids and round-trips events through SQLite', async () => {
@@ -14,6 +41,46 @@ describe('EventStore', () => {
 
     const events = await store.query({ sessionId: 's-1', limit: 10 });
     expect(events.map((e) => (e.payload as { text: string }).text)).toEqual(['first', 'second']);
+    await store.close();
+  });
+
+  it('recovers from a transient backend flush failure without losing events', async () => {
+    const clock = new FakeClock();
+    const store = new EventStore({
+      backend: new FlakyBackend(new InProcessBackend(tempDbPath())),
+      clock,
+      batchMs: 1,
+    });
+    await store.open();
+    await store.startSession({ sessionId: 's-1', targetKey: 'port:3000' });
+
+    // First flush's appendBatch rejects; the batch must be re-queued, not lost,
+    // and the pipeline must stay usable (not permanently rejected).
+    store.append(consoleEvent('s-1', 0, clock, 'first'));
+    await store.flush().catch(() => undefined);
+    store.append(consoleEvent('s-1', 0, clock, 'second'));
+
+    const events = await store.query({ sessionId: 's-1', types: ['console.entry'], limit: 10 });
+    expect(events.map((e) => (e.payload as { text: string }).text).sort()).toEqual(['first', 'second']);
+    await store.close();
+  });
+
+  it('keeps ingesting after a subscriber throws', async () => {
+    const { store, clock } = await makeStore();
+    await store.startSession({ sessionId: 's-1', targetKey: 'port:3000' });
+    const seen: string[] = [];
+    store.onEvent(() => {
+      throw new Error('bad subscriber');
+    });
+    store.onEvent((e) => seen.push((e.payload as { text: string }).text));
+
+    store.append(consoleEvent('s-1', 0, clock, 'first'));
+    store.append(consoleEvent('s-1', 0, clock, 'second'));
+
+    // The good subscriber still fired, and both events still persisted.
+    expect(seen).toEqual(['first', 'second']);
+    const events = await store.query({ sessionId: 's-1', types: ['console.entry'], limit: 10 });
+    expect(events).toHaveLength(2);
     await store.close();
   });
 

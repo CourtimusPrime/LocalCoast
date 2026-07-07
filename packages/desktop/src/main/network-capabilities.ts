@@ -318,18 +318,35 @@ export function registerNetworkCapabilities(
           return { ok: true };
         }
         case 'authorizationHeader': {
-          // Header rewrite via the Fetch arbitration: continue every request
-          // with an added Authorization header.
+          // Header rewrite via the Fetch arbitration. Scope to the tab's OWN
+          // origin so the bearer token is never sent to third-party hosts
+          // (analytics, CDNs, OAuth providers) the page happens to call.
+          let origin: string;
+          try {
+            origin = new URL(tab.view.webContents.getURL()).origin;
+          } catch {
+            throw new CapabilityFault('target_gone', 'tab has no navigable URL for origin scoping');
+          }
           await tab.cdp.registerFetchConsumer({
             id: 'auth-inject',
-            patterns: [{ urlPattern: '*', requestStage: 'Request' }],
+            patterns: [{ urlPattern: `${origin}/*`, requestStage: 'Request' }],
             onPaused: async (params, guest) => {
-              const request = params.request as { headers: Record<string, string> };
+              const request = params.request as { url: string; headers: Record<string, string> };
+              // Defense-in-depth over the pattern: only same-origin requests.
+              let sameOrigin = false;
+              try {
+                sameOrigin = new URL(request.url).origin === origin;
+              } catch {
+                sameOrigin = false;
+              }
+              const extra = sameOrigin
+                ? [{ name: 'Authorization', value: `Bearer ${input.token}` }]
+                : [];
               await guest.send(null, 'Fetch.continueRequest', {
                 requestId: params.requestId as string,
                 headers: [
                   ...Object.entries(request.headers).map(([name, value]) => ({ name, value })),
-                  { name: 'Authorization', value: `Bearer ${input.token}` },
+                  ...extra,
                 ],
               });
               return true;

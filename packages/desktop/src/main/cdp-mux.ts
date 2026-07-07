@@ -28,6 +28,9 @@ export class GuestCdp implements CdpTransport {
   private listeners = new Set<CdpEventListener>();
   private fetchConsumers = new Map<string, FetchConsumer>();
   private enabledDomains = new Set<string>();
+  /** Consumers with per-session CDP state (bindings, injected scripts) that the
+   *  mux can't restore itself — fired after a crash re-attach so they re-install. */
+  private reattachListeners = new Set<() => void>();
   private attached = false;
   private closing = false;
 
@@ -47,18 +50,42 @@ export class GuestCdp implements CdpTransport {
       if (this.closing) return;
       // Unexpected detach (renderer crash, target swap): re-attach and restore
       // domain enables so consumers keep flowing without re-registration.
-      setTimeout(() => {
-        try {
-          this.wc.debugger.attach('1.3');
-          this.attached = true;
-          void this.restoreState();
-        } catch (err) {
-          console.error(`cdp-mux: re-attach after detach (${reason}) failed:`, err);
-        }
-      }, 50);
+      void this.reattachWithRetry(reason);
     });
 
     await this.restoreState();
+  }
+
+  /** Register a callback fired after a crash re-attach so consumers can
+   *  re-install per-session CDP state (bindings, injected scripts). */
+  onReattach(cb: () => void): () => void {
+    this.reattachListeners.add(cb);
+    return () => this.reattachListeners.delete(cb);
+  }
+
+  private async reattachWithRetry(reason: string): Promise<void> {
+    // Retry with backoff: a single failed attach used to leave the mux dead
+    // forever (every consumer's send rejecting silently).
+    for (const delay of [50, 150, 400, 1000]) {
+      await new Promise((r) => setTimeout(r, delay));
+      if (this.closing || this.attached) return;
+      try {
+        this.wc.debugger.attach('1.3');
+        this.attached = true;
+        await this.restoreState();
+        for (const cb of this.reattachListeners) {
+          try {
+            cb();
+          } catch (err) {
+            console.error('cdp-mux: reattach listener threw:', err);
+          }
+        }
+        return;
+      } catch (err) {
+        console.error(`cdp-mux: re-attach after detach (${reason}) failed, retrying:`, err);
+      }
+    }
+    console.error(`cdp-mux: gave up re-attaching after detach (${reason})`);
   }
 
   private async restoreState(): Promise<void> {
@@ -110,13 +137,16 @@ export class GuestCdp implements CdpTransport {
   ): Promise<Record<string, unknown>> {
     if (!this.attached) return Promise.reject(new Error('cdp-mux: not attached'));
     const command = this.wc.debugger.sendCommand(method, params, cdpSessionId ?? undefined);
-    // Guard: commands to a dead/starting renderer can hang forever.
-    return Promise.race([
-      command as Promise<Record<string, unknown>>,
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`cdp-mux: ${method} timed out`)), timeoutMs),
-      ),
-    ]);
+    // Guard: commands to a dead/starting renderer can hang forever. Clear the
+    // timer on settle so it doesn't leak (one per send, dozens/sec under capture).
+    let timer: ReturnType<typeof setTimeout>;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`cdp-mux: ${method} timed out`)), timeoutMs);
+      timer.unref?.();
+    });
+    return Promise.race([command as Promise<Record<string, unknown>>, timeout]).finally(() =>
+      clearTimeout(timer),
+    );
   }
 
   onEvent(listener: CdpEventListener): () => void {

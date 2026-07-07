@@ -231,13 +231,19 @@ export class EventStore {
     const parsed = AnyEventSchema.parse(event);
     const stored = { ...parsed, id: this.nextId++ } as StoredEvent;
     this.ring.push(stored);
+    // Persist BEFORE notifying: a throwing subscriber must never cost us the
+    // event or starve later listeners.
+    this.buffer.push(stored);
+    this.scheduleFlush();
     for (const l of this.listeners) {
       if (l.sessionId && l.sessionId !== stored.sessionId) continue;
       if (l.types && !l.types.has(stored.type)) continue;
-      l.fn(stored);
+      try {
+        l.fn(stored);
+      } catch (err) {
+        console.error('event store: subscriber threw, continuing:', err);
+      }
     }
-    this.buffer.push(stored);
-    this.scheduleFlush();
     return stored;
   }
 
@@ -282,11 +288,21 @@ export class EventStore {
     this.buffer = [];
     this.sampleBuffer = [];
     this.flushInFlight = this.flushInFlight.then(async () => {
-      if (events.length > 0) {
-        await this.backend.call('appendBatch', events.map((e) => toRow(e)));
-      }
-      if (samples.length > 0) {
-        await this.backend.call('addSamples', samples);
+      try {
+        if (events.length > 0) {
+          await this.backend.call('appendBatch', events.map((e) => toRow(e)));
+        }
+        if (samples.length > 0) {
+          await this.backend.call('addSamples', samples);
+        }
+      } catch (err) {
+        // Re-queue the drained batch (front, preserving order) and keep the
+        // pipeline resolvable — a transient backend error must not lose events
+        // or permanently brick every future flush/query/close.
+        this.buffer.unshift(...events);
+        this.sampleBuffer.unshift(...samples);
+        console.error('event store: flush failed, re-queued batch:', err);
+        this.scheduleFlush();
       }
     });
     return this.flushInFlight;

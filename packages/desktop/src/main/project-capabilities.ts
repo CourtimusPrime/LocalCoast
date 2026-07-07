@@ -1,19 +1,38 @@
 import { execFile } from 'node:child_process';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
+import { shell } from 'electron';
 import { CapabilityFault, type Core, type ProcessInspector } from '@localcoast/core';
 import {
   FixtureLoadInput,
   FixtureLoadOutput,
   FixtureSchema,
   PortProfileSchema,
+  SafeName,
+  TargetKillInput,
+  TargetKillOutput,
+  TargetOpenExternalInput,
+  TargetOpenExternalOutput,
 } from '@localcoast/protocol-types';
 import { z } from 'zod';
 import type { MockEngine } from './mocks.js';
 import type { TabManager } from './tabs.js';
 
 const exec = promisify(execFile);
+
+/**
+ * Defense-in-depth against path traversal: schemas already constrain artifact
+ * names (SafeName), but any name that reaches a filesystem join is re-checked
+ * here so a future schema regression can't open a traversal hole.
+ */
+export function assertSafeName(name: string): string {
+  const parsed = SafeName.safeParse(name);
+  if (!parsed.success || basename(name) !== name) {
+    throw new CapabilityFault('invalid_input', `unsafe artifact name: ${name}`);
+  }
+  return name;
+}
 
 /**
  * Project & configuration intelligence (AD-8 Tier 1, infra #8) + Fixture
@@ -83,6 +102,43 @@ export function registerProjectCapabilities(
     },
   });
 
+  // -- gallery card actions --------------------------------------------------------
+
+  core.registry.registerCommand({
+    name: 'targets.openExternal',
+    description:
+      "Open a discovered server's URL (http://localhost:<port>) in the OS default browser.",
+    input: TargetOpenExternalInput,
+    output: TargetOpenExternalOutput,
+    surfaces: { palette: true },
+    paletteTitle: 'Open in browser…',
+    handler: async (input) => {
+      await shell.openExternal(`http://localhost:${input.port}/`);
+      return { opened: true };
+    },
+  });
+
+  core.registry.registerCommand({
+    name: 'targets.kill',
+    description:
+      'Terminate the dev-server process holding a port (SIGTERM). Destructive — the server stops. Used by the gallery card Kill action.',
+    input: TargetKillInput,
+    output: TargetKillOutput,
+    surfaces: { palette: true },
+    paletteTitle: 'Kill server…',
+    handler: async (input) => {
+      const servers = await inspector.listListeningServers();
+      const match = servers.find((s) => s.port === input.port);
+      if (!match?.pid) return { killed: false };
+      try {
+        process.kill(match.pid, 'SIGTERM');
+        return { killed: true, pid: match.pid };
+      } catch {
+        return { killed: false, pid: match.pid };
+      }
+    },
+  });
+
   // -- port profiles ---------------------------------------------------------------
 
   core.registry.registerCommand({
@@ -100,7 +156,7 @@ export function registerProjectCapabilities(
       const root = await rootFor(input.sessionId);
       const dir = join(root, '.localcoast', 'profiles');
       await mkdir(dir, { recursive: true });
-      const path = join(dir, `${input.profile.name}.json`);
+      const path = join(dir, `${assertSafeName(input.profile.name)}.json`);
       await writeFile(
         path,
         JSON.stringify(PortProfileSchema.parse({ version: 1, kind: 'portProfile', ...input.profile }), null, 2),
@@ -113,13 +169,13 @@ export function registerProjectCapabilities(
     name: 'profile.load',
     description:
       'Load a saved port profile and open its ports as tabs. Returns the opened session ids. Restores the committed team view.',
-    input: z.object({ sessionId: z.string(), name: z.string() }),
+    input: z.object({ sessionId: z.string(), name: SafeName }),
     output: z.object({ opened: z.array(z.object({ port: z.number().int(), sessionId: z.string() })) }),
     surfaces: { palette: true },
     paletteTitle: 'Load port profile…',
     handler: async (input) => {
       const root = await rootFor(input.sessionId);
-      const raw = await readFile(join(root, '.localcoast', 'profiles', `${input.name}.json`), 'utf8').catch(() => {
+      const raw = await readFile(join(root, '.localcoast', 'profiles', `${assertSafeName(input.name)}.json`), 'utf8').catch(() => {
         throw new CapabilityFault('not_found', `profile ${input.name}`);
       });
       const profile = PortProfileSchema.parse(JSON.parse(raw));
@@ -144,7 +200,7 @@ export function registerProjectCapabilities(
     paletteTitle: 'Load fixture…',
     handler: async (input) => {
       const root = await rootFor(input.sessionId);
-      const raw = await readFile(join(root, '.localcoast', 'fixtures', `${input.name}.json`), 'utf8').catch(() => {
+      const raw = await readFile(join(root, '.localcoast', 'fixtures', `${assertSafeName(input.name)}.json`), 'utf8').catch(() => {
         throw new CapabilityFault('not_found', `fixture ${input.name}`);
       });
       const fixture = FixtureSchema.parse(JSON.parse(raw));

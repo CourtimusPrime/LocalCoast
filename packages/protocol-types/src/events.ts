@@ -341,6 +341,8 @@ export const BuildErrorEvent = event(
   'build.error',
   z.object({
     message: z.string(),
+    /** Dev-server port the error belongs to, so build.status buckets it correctly. */
+    port: z.number().int().optional(),
     file: z.string().optional(),
     line: z.number().int().optional(),
     column: z.number().int().optional(),

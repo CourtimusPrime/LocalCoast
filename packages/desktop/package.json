@@ -13,6 +13,7 @@
     "dev": "node scripts/build.mjs && electron ."
   },
   "dependencies": {
+    "@jridgewell/trace-mapping": "^0.3.25",
     "@localcoast/core": "workspace:*",
     "@localcoast/mcp": "workspace:*",
     "@localcoast/page-agent": "workspace:*",
